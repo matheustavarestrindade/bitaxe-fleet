@@ -83,3 +83,27 @@ jobs:
         uses: hacs/action@d556e736723344f83838d08488c983a15381059a # v22.5.0
         with:
           category: integration
+
+  release-archive:
+    name: Release archive
+    needs: [python, frontend, hassfest, hacs]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: 3.14.2
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+          node-version: 24
+      - name: Install frontend tooling
+        run: npm ci --prefix frontend
+      - name: Build frontend
+        run: npm run --prefix frontend build
+      - name: Package and verify the release archive
+        run: python scripts/package_release.py --output "$RUNNER_TEMP/release"

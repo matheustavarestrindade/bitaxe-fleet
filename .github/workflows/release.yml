@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Package and publish
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - name: Verify the release tag
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+            printf 'Invalid release tag: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "$RELEASE_TAG")" != "tag" ]]; then
+            printf 'Release tags must be annotated: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse "$RELEASE_TAG^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+            printf 'The checked out commit does not match %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          cache: pip
+          cache-dependency-path: pyproject.toml
+          python-version: 3.14.2
+      - name: Install Python tooling
+        run: python -m pip install ".[dev]"
+      - name: Check Python formatting
+        run: python -m ruff format --check .
+      - name: Lint Python
+        run: python -m ruff check .
+      - name: Type-check Python
+        run: python -m mypy custom_components tests
+      - name: Test Python
+        run: python -m pytest
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+          node-version: 24
+      - name: Install frontend tooling
+        run: npm ci --prefix frontend
+      - name: Lint frontend
+        run: npm run --prefix frontend lint
+      - name: Type-check frontend
+        run: npm run --prefix frontend typecheck
+      - name: Test frontend
+        run: npm run --prefix frontend test
+      - name: Build frontend
+        run: npm run --prefix frontend build
+      - name: Validate Home Assistant metadata
+        uses: home-assistant/actions/hassfest@f4ca6f671bd429efb108c0f2fa0ae8af0215986c
+      - name: Validate HACS integration metadata
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a # v22.5.0
+        with:
+          category: integration
+      - name: Package release assets
+        shell: bash
+        run: |
+          python scripts/package_release.py \
+            --version "${RELEASE_TAG#v}" \
+            --output "$RUNNER_TEMP/release" \
+            --notes-file "$RUNNER_TEMP/release/notes.md"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          assets=(
+            "$RUNNER_TEMP/release/bitaxe_fleet.zip"
+            "$RUNNER_TEMP/release/bitaxe_fleet.zip.sha256"
+          )
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            exit 0
+          fi
+          prerelease=()
+          if [[ "$RELEASE_TAG" == v0.* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --title "Bitaxe Fleet $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release/notes.md" \
+            --verify-tag \
+            "${prerelease[@]}"

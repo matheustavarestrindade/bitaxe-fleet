@@ -3,12 +3,7 @@
 All notable changes to Bitaxe Fleet will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project will adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-once releases begin.
-
-Bitaxe Fleet has an early development scaffold but no installable release yet.
-Version headings and repository comparison links will be added by the release
-process when the first release is published.
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Changelog Rules
 
@@ -24,6 +19,13 @@ process when the first release is published.
   or other household data.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-07-17
+
+### Development Preview
+
+- This prerelease packages the initial integration scaffold for HACS testing.
+  Miner discovery, monitoring, configuration, and recovery are not implemented.
 
 ### Added
 
@@ -43,8 +45,8 @@ process when the first release is published.
   TypeScript/Lit placeholder panel tooling, and a locked npm dependency tree.
 - A pinned Python `3.14.2` and Node.js `24.13.0` Dev Container for local
   validation.
-- GitHub Actions validation for Python, frontend, Hassfest, and HACS checks,
-  plus Dependabot configuration.
+- GitHub Actions validation for Python, frontend, Hassfest, HACS, and release
+  archive checks, plus tag-triggered HACS release packaging.
 - MIT License.
 
 ### Security

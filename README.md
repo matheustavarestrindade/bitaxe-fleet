@@ -4,11 +4,13 @@ Bitaxe Fleet is a planned Home Assistant custom integration for discovering,
 monitoring, configuring, and recovering Bitaxe miners running AxeOS/ESP-Miner.
 
 > [!IMPORTANT]
-> This repository is in early implementation. The singleton fleet config entry,
-> test tooling, and development container exist, but miner discovery, monitoring,
-> configuration, and recovery have not been implemented. No installable HACS
-> release exists yet. See [TODO.md](TODO.md) for implementation progress and
-> [PROJECT.md](PROJECT.md) for the complete technical design.
+> This repository is in early implementation. The `v0.1.0` development preview
+> makes the singleton fleet config entry installable through HACS, while the
+> repository provides test tooling and a development container. Miner discovery,
+> monitoring, configuration, and recovery have not been implemented, so it is
+> not a stable functional miner management release. See [TODO.md](TODO.md) for
+> implementation progress and [PROJECT.md](PROJECT.md) for the complete
+> technical design.
 
 ## Goals
 
@@ -335,18 +337,21 @@ registered as a Home Assistant panel.
 
 ## Release Process
 
-Pull requests and pushes to `master` will run Python, TypeScript, Home
-Assistant, HACS, and artifact validation.
+Pull requests and pushes to `master` run Python, TypeScript, Home Assistant,
+HACS, and release-archive validation.
 
-After a successful release-worthy Conventional Commit reaches `master`, CI
-will:
+An explicit annotated SemVer tag is the release approval. After the source
+versions and curated changelog entry are prepared, pushing a tag such as
+`v0.1.1` automatically:
 
-1. Calculate the next semantic version.
-2. Build the TypeScript panel.
-3. Stamp the integration manifest.
-4. Package `bitaxe_fleet.zip`.
-5. Generate release notes.
-6. Publish a GitHub Release and checksum.
+1. Re-runs all validation against the tagged commit.
+2. Builds the TypeScript panel from the lockfile.
+3. Packages and verifies `bitaxe_fleet.zip`.
+4. Generates a SHA-256 checksum and curated release notes.
+5. Publishes the GitHub Release with both assets.
+
+Tags below `v1.0.0` publish as GitHub prereleases. Conventional Commits guide
+the SemVer bump, while the explicit tag prevents an accidental public release.
 
 HACS will use GitHub Releases as the update source. See
 [CHANGELOG.md](CHANGELOG.md) for project history.

@@ -14,8 +14,9 @@ architecture, safety invariants, allowlists, and contracts. Read
 ## Current Status
 
 - Project state: Phase 1 implementation scaffold complete.
-- Installable integration: not yet available; no miner API behavior exists.
-- Current release: none.
+- Installable integration: `v0.1.0` development preview only; no miner API
+  behavior exists.
+- Current release: `v0.1.0` prerelease.
 - Documentation phase: complete.
 - Next implementation phase: Phase 2 typed AxeOS boundary.
 
@@ -778,7 +779,7 @@ the named implementation gate instead of guessing it in unrelated work.
 - [ ] Validate translations and service schemas.
 - [ ] Build panel once and pass its artifact into packaging.
 - [ ] Add Markdown/link and secret scanning where practical.
-- [ ] Add dependency update automation.
+- [ ] Document a manual dependency-review cadence without Dependabot PR automation.
 
 ### HACS Package
 

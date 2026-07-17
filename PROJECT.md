@@ -135,7 +135,6 @@ its phase in `TODO.md`.
 |   |-- workflows/
 |   |   |-- validate.yml
 |   |   `-- release.yml
-|   `-- dependabot.yml
 |-- custom_components/
 |   `-- bitaxe_fleet/
 |       |-- axeos/
@@ -1052,7 +1051,7 @@ Do not send local miner telemetry to Satoshi Radio.
 
 - Pin CI actions to immutable commit SHAs.
 - Keep Python and npm lock/dependency metadata reviewable.
-- Run dependency update automation.
+- Review dependency updates intentionally; do not enable Dependabot PR automation.
 - Generate a release checksum.
 - Build releases in GitHub Actions from a tagged commit.
 - Grant workflows minimum permissions.
@@ -1210,20 +1209,19 @@ Run on pull requests and pushes to `master`:
 
 ### Release Workflow
 
-After all required checks pass on a release-worthy push to `master`:
+An explicit annotated SemVer tag is required to approve a release. After a tag
+is pushed, the release workflow:
 
-1. Derive the SemVer bump from Conventional Commits.
-2. Update or generate `CHANGELOG.md` without discarding curated entries.
-3. Stamp the same version into `manifest.json` and release metadata.
-4. Build the panel from locked dependencies.
-5. Package the integration as `bitaxe_fleet.zip`.
-6. Verify the archive contains the compiled panel and excludes source caches,
+1. Re-runs the Python, TypeScript, Home Assistant, and HACS checks on the exact
+   tagged commit.
+2. Requires the tag, `manifest.json`, and `pyproject.toml` to use one version.
+3. Builds the panel from locked dependencies and packages `bitaxe_fleet.zip`.
+4. Verifies the archive contains the compiled panel and excludes source caches,
    tests, secrets, and development dependencies.
-7. Generate a SHA-256 checksum.
-8. Tag the exact commit.
-9. Publish a GitHub Release with notes, archive, and checksum.
+5. Generates a SHA-256 checksum and extracts the curated changelog section.
+6. Publishes a GitHub Release with the archive, checksum, and notes.
 
-Do not publish from an unvalidated working tree or allow two release jobs to
+Do not publish from an unvalidated tagged commit or allow two release jobs to
 race. Configure workflow concurrency.
 
 ### Conventional Commit Mapping
@@ -1235,8 +1233,8 @@ race. Configure workflow concurrency.
 | `BREAKING CHANGE:` or breaking marker | Major |
 | `docs:`, `test:`, `ci:`, `chore:`, `refactor:` | No release unless configured otherwise |
 
-Pre-`1.0.0` breaking behavior must be configured deliberately in the selected
-release tool and documented before the first release.
+Conventional Commits guide the selected tag version. Pushing that tag is the
+explicit release approval; releases below `1.0.0` are published as prereleases.
 
 ### HACS Metadata
 
@@ -1306,7 +1304,7 @@ a planned feature as available in README installation instructions.
 | D-011 | 2026-07-16 | Use explicit wire, domain, and DTO layers | Contain untrusted/mutable JSON and make behavior auditable |
 | D-012 | 2026-07-16 | Use REST as the initial compatibility baseline | REST is broadly available and simpler to validate across firmware |
 | D-013 | 2026-07-16 | Keep Satoshi Radio support optional and isolated | Local monitoring/recovery must not depend on an external pool service |
-| D-014 | 2026-07-16 | Release from successful release-worthy pushes to `master` | Automate reproducible SemVer HACS updates |
+| D-014 | 2026-07-17 | Publish from explicit SemVer tags after in-workflow validation | Automate reproducible HACS releases without accidental public publication |
 | D-015 | 2026-07-16 | Maintain a Keep a Changelog-style `CHANGELOG.md` | Give users a curated, durable history beyond generated GitHub notes |
 | D-016 | 2026-07-17 | Use `matheustavarestrindade/bitaxe-fleet` as the canonical source repository | Provides valid public documentation and issue-tracker URLs for HACS metadata |
 | D-017 | 2026-07-17 | Target Home Assistant `2026.7.2` and Python `3.14.2` initially | Matches current Home Assistant development support and typed runtime-data APIs |
@@ -1326,7 +1324,6 @@ unrelated code:
 | O-006 | Recovery timing/attempt defaults | Real-device restart timing and safety tests |
 | O-007 | Incident retention defaults | Storage-size measurements and panel UX |
 | O-008 | Final entity platform set | Home Assistant UX review after typed models exist |
-| O-010 | Release automation tool | Ability to preserve curated changelog and produce required artifact |
 | O-011 | Initial firmware support statement | Fixture and real-device validation matrix |
 | O-012 | Whether AxeOS authentication variants are in initial scope | Current firmware/device evidence |
 
