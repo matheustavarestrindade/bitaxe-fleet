@@ -17,20 +17,21 @@ from typing import Final
 
 ARCHIVE_FILENAME: Final = "bitaxe_fleet.zip"
 CHECKSUM_FILENAME: Final = f"{ARCHIVE_FILENAME}.sha256"
-COMPONENT_PATH: Final = Path("custom_components/bitaxe_fleet")
-MANIFEST_PATH: Final = COMPONENT_PATH / "manifest.json"
+COMPONENT_SOURCE_PATH: Final = Path("custom_components/bitaxe_fleet")
+MANIFEST_SOURCE_PATH: Final = COMPONENT_SOURCE_PATH / "manifest.json"
+MANIFEST_ARCHIVE_PATH: Final = Path("manifest.json")
 FRONTEND_SOURCE_PATH: Final = Path("frontend/dist/bitaxe-fleet-panel.js")
-FRONTEND_ARCHIVE_PATH: Final = COMPONENT_PATH / "frontend/bitaxe-fleet-panel.js"
+FRONTEND_ARCHIVE_PATH: Final = Path("frontend/bitaxe-fleet-panel.js")
 REQUIRED_ARCHIVE_PATHS: Final = frozenset(
     {
-        (COMPONENT_PATH / "__init__.py").as_posix(),
-        MANIFEST_PATH.as_posix(),
-        (COMPONENT_PATH / "translations/en.json").as_posix(),
+        "__init__.py",
+        MANIFEST_ARCHIVE_PATH.as_posix(),
+        "translations/en.json",
         FRONTEND_ARCHIVE_PATH.as_posix(),
     }
 )
 PROHIBITED_PATH_PARTS: Final = frozenset(
-    {".git", "..", "__pycache__", "node_modules", "tests"}
+    {".git", "..", "__pycache__", "custom_components", "node_modules", "tests"}
 )
 SEMVER_PATTERN: Final = re.compile(
     r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
@@ -51,7 +52,7 @@ def _read_json_object(path: Path) -> dict[str, object]:
 
 def _read_manifest_version(repository: Path) -> str:
     """Return the integration version declared in the source manifest."""
-    version = _read_json_object(repository / MANIFEST_PATH).get("version")
+    version = _read_json_object(repository / MANIFEST_SOURCE_PATH).get("version")
     if not isinstance(version, str):
         msg = "The integration manifest must declare a string version"
         raise ValueError(msg)
@@ -98,7 +99,7 @@ def _validate_source_versions(repository: Path, version: str) -> None:
 
 def _copy_release_tree(repository: Path, staging_directory: Path, version: str) -> None:
     """Copy runtime files and the compiled panel into a clean archive tree."""
-    component_source = repository / COMPONENT_PATH
+    component_source = repository / COMPONENT_SOURCE_PATH
     frontend_source = repository / FRONTEND_SOURCE_PATH
     if not component_source.is_dir():
         msg = f"Missing integration source directory: {component_source}"
@@ -107,10 +108,10 @@ def _copy_release_tree(repository: Path, staging_directory: Path, version: str) 
         msg = f"Missing compiled panel: {frontend_source}"
         raise FileNotFoundError(msg)
 
-    component_destination = staging_directory / COMPONENT_PATH
     shutil.copytree(
         component_source,
-        component_destination,
+        staging_directory,
+        dirs_exist_ok=True,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
 
@@ -118,7 +119,7 @@ def _copy_release_tree(repository: Path, staging_directory: Path, version: str) 
     frontend_destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(frontend_source, frontend_destination)
 
-    manifest_path = staging_directory / MANIFEST_PATH
+    manifest_path = staging_directory / MANIFEST_ARCHIVE_PATH
     manifest = _read_json_object(manifest_path)
     manifest["version"] = version
     manifest_path.write_text(
@@ -150,7 +151,6 @@ def _write_archive(staging_directory: Path, archive_path: Path) -> None:
 
 def verify_release_archive(archive_path: Path, version: str) -> None:
     """Verify package layout, required files, and release metadata."""
-    component_prefix = f"{COMPONENT_PATH.as_posix()}/"
     with zipfile.ZipFile(archive_path) as archive:
         names = tuple(info.filename for info in archive.infolist())
         if len(names) != len(set(names)):
@@ -160,7 +160,8 @@ def verify_release_archive(archive_path: Path, version: str) -> None:
         invalid_paths = [
             name
             for name in names
-            if not name.startswith(component_prefix)
+            if name.startswith("/")
+            or "\\" in name
             or any(part in PROHIBITED_PATH_PARTS for part in Path(name).parts)
             or name.endswith((".map", ".pyc", ".pyo"))
         ]
@@ -173,7 +174,7 @@ def verify_release_archive(archive_path: Path, version: str) -> None:
             msg = f"Release archive is missing required paths: {sorted(missing_paths)}"
             raise ValueError(msg)
 
-        manifest = json.loads(archive.read(MANIFEST_PATH.as_posix()))
+        manifest = json.loads(archive.read(MANIFEST_ARCHIVE_PATH.as_posix()))
         if not isinstance(manifest, dict) or manifest.get("version") != version:
             msg = "Release archive manifest version does not match the release version"
             raise ValueError(msg)

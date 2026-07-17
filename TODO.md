@@ -14,9 +14,9 @@ architecture, safety invariants, allowlists, and contracts. Read
 ## Current Status
 
 - Project state: Phase 1 implementation scaffold complete.
-- Installable integration: `v0.1.0` development preview only; no miner API
+- Installable integration: `v0.1.1` development preview only; no miner API
   behavior exists.
-- Current release: `v0.1.0` prerelease.
+- Current release: `v0.1.1` prerelease.
 - Documentation phase: complete.
 - Next implementation phase: Phase 2 typed AxeOS boundary.
 
@@ -786,7 +786,8 @@ the named implementation gate instead of guessing it in unrelated work.
 - [ ] Set `zip_release: true`.
 - [ ] Set `filename: bitaxe_fleet.zip`.
 - [ ] Set `hide_default_branch: true`.
-- [ ] Package the expected `custom_components/bitaxe_fleet` structure.
+- [ ] Package integration files at the ZIP root for HACS extraction into
+  `custom_components/bitaxe_fleet`.
 - [ ] Include compiled panel, manifest, translations, services, and Python code.
 - [ ] Exclude tests, fixtures, caches, source maps if sensitive, npm tree, local
   state, and secrets.

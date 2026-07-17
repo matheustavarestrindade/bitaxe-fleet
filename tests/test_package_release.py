@@ -11,7 +11,7 @@ import pytest
 from scripts.package_release import (
     ARCHIVE_FILENAME,
     FRONTEND_ARCHIVE_PATH,
-    MANIFEST_PATH,
+    MANIFEST_ARCHIVE_PATH,
     package_release,
     release_notes,
     verify_release_archive,
@@ -69,11 +69,20 @@ def test_package_release_creates_a_deterministic_hacs_archive(tmp_path: Path) ->
 
     with zipfile.ZipFile(first_archive) as archive:
         names = set(archive.namelist())
-        manifest = json.loads(archive.read(MANIFEST_PATH.as_posix()))
+        manifest = json.loads(archive.read(MANIFEST_ARCHIVE_PATH.as_posix()))
 
     assert manifest["version"] == "0.1.0"
     assert FRONTEND_ARCHIVE_PATH.as_posix() in names
     assert not any("__pycache__" in name for name in names)
+    assert not any(name.startswith("custom_components/") for name in names)
+
+    install_directory = tmp_path / "custom_components/bitaxe_fleet"
+    install_directory.mkdir(parents=True)
+    with zipfile.ZipFile(first_archive) as archive:
+        archive.extractall(install_directory)
+
+    assert (install_directory / MANIFEST_ARCHIVE_PATH).is_file()
+    assert not (install_directory / "custom_components").exists()
 
 
 def test_package_release_rejects_mismatched_source_versions(tmp_path: Path) -> None:

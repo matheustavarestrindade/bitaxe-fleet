@@ -4,7 +4,7 @@ Bitaxe Fleet is a planned Home Assistant custom integration for discovering,
 monitoring, configuring, and recovering Bitaxe miners running AxeOS/ESP-Miner.
 
 > [!IMPORTANT]
-> This repository is in early implementation. The `v0.1.0` development preview
+> This repository is in early implementation. The `v0.1.1` development preview
 > makes the singleton fleet config entry installable through HACS, while the
 > repository provides test tooling and a development container. Miner discovery,
 > monitoring, configuration, and recovery have not been implemented, so it is
@@ -352,6 +352,9 @@ versions and curated changelog entry are prepared, pushing a tag such as
 
 Tags below `v1.0.0` publish as GitHub prereleases. Conventional Commits guide
 the SemVer bump, while the explicit tag prevents an accidental public release.
+
+The release ZIP contains the integration files at its root because HACS extracts
+it directly into `custom_components/bitaxe_fleet`.
 
 HACS will use GitHub Releases as the update source. See
 [CHANGELOG.md](CHANGELOG.md) for project history.

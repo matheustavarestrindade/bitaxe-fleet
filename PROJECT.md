@@ -1216,8 +1216,9 @@ is pushed, the release workflow:
    tagged commit.
 2. Requires the tag, `manifest.json`, and `pyproject.toml` to use one version.
 3. Builds the panel from locked dependencies and packages `bitaxe_fleet.zip`.
-4. Verifies the archive contains the compiled panel and excludes source caches,
-   tests, secrets, and development dependencies.
+4. Verifies the archive places integration files at its root for HACS extraction,
+   contains the compiled panel, and excludes source caches, tests, secrets, and
+   development dependencies.
 5. Generates a SHA-256 checksum and extracts the curated changelog section.
 6. Publishes a GitHub Release with the archive, checksum, and notes.
 
