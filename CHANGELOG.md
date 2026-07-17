@@ -26,12 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - HACS release archives now place integration files at the archive root, so HACS
   extracts them directly into `custom_components/bitaxe_fleet`.
+- Version tags are published as normal GitHub Releases so HACS can detect them.
 
 ## [0.1.0] - 2026-07-17
 
 ### Development Preview
 
-- This prerelease packages the initial integration scaffold for HACS testing.
+- This development release packages the initial integration scaffold for HACS
+  testing.
   Miner discovery, monitoring, configuration, and recovery are not implemented.
 
 ### Added

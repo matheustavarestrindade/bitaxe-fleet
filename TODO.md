@@ -16,7 +16,7 @@ architecture, safety invariants, allowlists, and contracts. Read
 - Project state: Phase 1 implementation scaffold complete.
 - Installable integration: `v0.1.1` development preview only; no miner API
   behavior exists.
-- Current release: `v0.1.1` prerelease.
+- Current release: `v0.1.1` development release.
 - Documentation phase: complete.
 - Next implementation phase: Phase 2 typed AxeOS boundary.
 
@@ -817,7 +817,7 @@ the named implementation gate instead of guessing it in unrelated work.
 ### Phase 11 Gate
 
 - [ ] A dry run produces a reproducible valid ZIP and checksum.
-- [ ] A controlled prerelease can be installed and upgraded through HACS.
+- [ ] A controlled release can be installed and upgraded through HACS.
 - [ ] Rollback/reinstall limitations are documented.
 
 ## Phase 12: Real-Device Validation And Release Readiness
@@ -860,7 +860,7 @@ the named implementation gate instead of guessing it in unrelated work.
 - [ ] Review diagnostics and release archive for secrets.
 - [ ] Review `CHANGELOG.md` `Unreleased` entries.
 - [ ] Verify clean install, upgrade, reload, restart, and uninstall.
-- [ ] Publish prerelease and observe real use before stable release.
+- [ ] Publish a release and observe real use before the first stable feature release.
 - [ ] Promote to stable only with successful compatibility and safety evidence.
 
 ### Phase 12 Gate

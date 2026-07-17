@@ -350,8 +350,9 @@ versions and curated changelog entry are prepared, pushing a tag such as
 4. Generates a SHA-256 checksum and curated release notes.
 5. Publishes the GitHub Release with both assets.
 
-Tags below `v1.0.0` publish as GitHub prereleases. Conventional Commits guide
-the SemVer bump, while the explicit tag prevents an accidental public release.
+Each annotated SemVer tag publishes as a normal GitHub Release. Conventional
+Commits guide the SemVer bump, while the explicit tag prevents an accidental
+public release.
 
 The release ZIP contains the integration files at its root because HACS extracts
 it directly into `custom_components/bitaxe_fleet`.
