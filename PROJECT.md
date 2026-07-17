@@ -1234,8 +1234,7 @@ race. Configure workflow concurrency.
 | `docs:`, `test:`, `ci:`, `chore:`, `refactor:` | No release unless configured otherwise |
 
 Conventional Commits guide the selected tag version. Pushing that tag is the
-explicit release approval; each SemVer tag is published as a normal GitHub
-Release.
+explicit release approval; releases below `1.0.0` are published as prereleases.
 
 ### HACS Metadata
 

@@ -100,11 +100,15 @@ jobs:
             "$RUNNER_TEMP/release/bitaxe_fleet.zip.sha256"
           )
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --prerelease=false
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
             exit 0
+          fi
+          prerelease=()
+          if [[ "$RELEASE_TAG" == v0.* ]]; then
+            prerelease=(--prerelease)
           fi
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --title "Bitaxe Fleet $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/release/notes.md" \
-            --verify-tag
+            --verify-tag \
+            "${prerelease[@]}"

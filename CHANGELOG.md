@@ -24,8 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Development Preview
 
-- This development release packages the initial integration scaffold for HACS
-  testing.
+- This prerelease packages the initial integration scaffold for HACS testing.
   Miner discovery, monitoring, configuration, and recovery are not implemented.
 
 ### Added
