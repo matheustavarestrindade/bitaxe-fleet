@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# Home Assistant and editor state
+.storage/
+.vscode/
+*.code-workspace
+
+# Operating system files
+.DS_Store

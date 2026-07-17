@@ -1,0 +1,14 @@
+{
+  "title": "Bitaxe Fleet",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Bitaxe Fleet",
+        "description": "Create the fleet manager. Miner discovery is configured after setup."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Bitaxe Fleet fleet manager can be configured."
+    }
+  }
+}

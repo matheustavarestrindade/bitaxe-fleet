@@ -1,0 +1,29 @@
+{
+  "name": "Bitaxe Fleet",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "containerUser": "vscode",
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/bitaxe-fleet",
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install '.[dev]' && npm ci --prefix frontend",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "ms-python.mypy-type-checker",
+        "ms-python.python"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "python.testing.pytestEnabled": true
+      }
+    }
+  }
+}

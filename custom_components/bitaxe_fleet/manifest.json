@@ -1,0 +1,15 @@
+{
+  "domain": "bitaxe_fleet",
+  "name": "Bitaxe Fleet",
+  "codeowners": [
+    "@matheustavarestrindade"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/matheustavarestrindade/bitaxe-fleet#readme",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/matheustavarestrindade/bitaxe-fleet/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

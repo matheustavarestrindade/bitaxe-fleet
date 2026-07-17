@@ -1,0 +1,7 @@
+{
+  "name": "Bitaxe Fleet",
+  "homeassistant": "2026.7.2",
+  "zip_release": true,
+  "filename": "bitaxe_fleet.zip",
+  "hide_default_branch": true
+}

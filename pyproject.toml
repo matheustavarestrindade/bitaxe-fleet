@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitaxe-fleet"
+version = "0.1.0"
+description = "Home Assistant fleet management for Bitaxe miners running AxeOS"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.14.2"
+
+[project.optional-dependencies]
+dev = [
+    "homeassistant==2026.7.2",
+    "mypy==2.1.0",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "pytest-homeassistant-custom-component==0.13.346",
+    "ruff==0.15.17",
+]
+
+[tool.setuptools]
+packages = []
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers -ra --cov=custom_components.bitaxe_fleet --cov-report=term-missing"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["custom_components/bitaxe_fleet"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+enable_error_code = ["explicit-override", "ignore-without-code", "possibly-undefined", "redundant-expr", "truthy-bool"]
+explicit_package_bases = true
+files = ["custom_components", "tests"]
+namespace_packages = true
+no_implicit_optional = true
+python_version = "3.14"
+strict_equality = true
+strict = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["pytest_homeassistant_custom_component.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components"]
