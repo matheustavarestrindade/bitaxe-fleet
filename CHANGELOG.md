@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-17
+
+### Added
+
+- Administrator-driven manual enrollment of an AxeOS miner from Bitaxe Fleet's
+  Configure flow using a private IPv4 address.
+- Stable MAC-keyed miner storage, Home Assistant devices, and native hashrate,
+  power, and temperature sensors.
+- Bounded local `/api/system/info` polling with typed response validation and
+  synthetic AxeOS compatibility fixtures.
+
+### Security
+
+- Manual onboarding accepts only RFC 1918 IPv4 addresses, follows no redirects,
+  bounds request and response sizes, and never stores raw API payloads.
+
 ## [0.1.1] - 2026-07-17
 
 ### Fixed

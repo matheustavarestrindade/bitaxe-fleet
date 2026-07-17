@@ -1,0 +1,3 @@
+"""Typed AxeOS API boundary."""
+
+from __future__ import annotations

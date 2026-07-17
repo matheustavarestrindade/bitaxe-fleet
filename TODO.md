@@ -13,12 +13,31 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: Phase 1 implementation scaffold complete.
-- Installable integration: `v0.1.1` development preview only; no miner API
-  behavior exists.
+- Project state: manual onboarding milestone implemented; broader phases remain
+  incomplete.
+- Installable integration: `v0.1.1` is the current HACS development preview;
+  prepared `v0.2.0` adds manual private-IPv4 miner enrollment and monitoring.
 - Current release: `v0.1.1` development release.
 - Documentation phase: complete.
-- Next implementation phase: Phase 2 typed AxeOS boundary.
+- Next implementation phase: complete the remaining Phase 2 typed AxeOS
+  boundary before adding automatic discovery.
+
+## Manual Onboarding Milestone
+
+This scoped milestone is complete and verified by the Python quality gate. It
+does not complete Phases 2 through 5 or change their unchecked tasks.
+
+- [x] Validate an administrator-submitted RFC 1918 IPv4 host through bounded,
+  redirect-free `GET /api/system/info` requests.
+- [x] Normalize `macAddr`, persist approved miner endpoint and metadata through
+  Home Assistant `Store`, and preserve one record when the same MAC is submitted
+  at a new address.
+- [x] Create one per-miner coordinator, device, and native hashrate, power, and
+  temperature sensors from validated snapshots.
+- [x] Add synthetic AxeOS fixtures and parser, HTTP, storage, options-flow,
+  lifecycle, and entity tests.
+- [ ] Add `/api/system/asic`, logs, mutations, real-device fixtures, and formal
+  compatibility coverage in their existing Phase 2 tasks.
 
 ## Status Rules
 

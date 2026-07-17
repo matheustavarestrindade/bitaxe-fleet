@@ -25,11 +25,17 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-17, Phase 1 is complete. The repository contains a typed
-singleton config-entry scaffold, strict Python and TypeScript tooling, a
-development container, local lifecycle/config-flow tests, and validation CI.
-It does not yet discover or contact miners, expose entities, register a panel,
-or implement profiles, recovery, storage, or release artifacts.
+As of 2026-07-17, the initial manual-onboarding milestone is complete. The
+repository contains the typed singleton config-entry scaffold, strict Python and
+TypeScript tooling, a development container, local lifecycle/config-flow tests,
+and validation CI. An administrator can manually enroll an RFC 1918 IPv4 AxeOS
+host through the options flow; Bitaxe Fleet validates `/api/system/info`, stores
+the normalized `macAddr`, polls the enrolled miner, and exposes hashrate, power,
+and temperature sensors under one Home Assistant device.
+
+Automatic discovery, active scanning, profiles, controls, recovery, incidents,
+diagnostics, and the custom panel remain unimplemented. This milestone must not
+be described as complete fleet management or automatic discovery.
 
 ## Product Definition
 

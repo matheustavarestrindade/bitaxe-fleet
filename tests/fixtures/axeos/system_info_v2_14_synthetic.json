@@ -1,0 +1,10 @@
+{
+  "ASICModel": "BM1368",
+  "boardVersion": "Bitaxe Supra",
+  "hashRate": 654.32,
+  "hostname": "bitaxe-lab",
+  "macAddr": "02:12:34:56:78:9A",
+  "power": 17.4,
+  "temp": 54.25,
+  "version": "v2.14.2"
+}

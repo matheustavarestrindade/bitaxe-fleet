@@ -4,11 +4,41 @@
     "step": {
       "user": {
         "title": "Set up Bitaxe Fleet",
-        "description": "Create the fleet manager. Miner discovery is configured after setup."
+        "description": "Create the fleet manager. Add private AxeOS miner addresses through Configure after setup."
       }
     },
     "abort": {
       "single_instance_allowed": "Only one Bitaxe Fleet fleet manager can be configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Add Bitaxe miner",
+        "description": "Enter a private IPv4 address for a miner running AxeOS. Bitaxe Fleet verifies its identity before enrollment.",
+        "data": {
+          "host": "Miner IPv4 address"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the miner.",
+      "invalid_host": "Enter a private IPv4 address.",
+      "not_bitaxe": "This address did not return a valid AxeOS miner response.",
+      "not_ready": "Bitaxe Fleet is not ready. Try again after setup finishes."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "hashrate": {
+        "name": "Hashrate"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "temperature": {
+        "name": "Temperature"
+      }
     }
   }
 }

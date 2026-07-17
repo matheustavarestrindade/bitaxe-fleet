@@ -1,16 +1,16 @@
 # Bitaxe Fleet
 
-Bitaxe Fleet is a planned Home Assistant custom integration for discovering,
-monitoring, configuring, and recovering Bitaxe miners running AxeOS/ESP-Miner.
+Bitaxe Fleet is an early Home Assistant custom integration for monitoring Bitaxe
+miners running AxeOS/ESP-Miner. It is designed to grow into safe fleet discovery,
+configuration, and recovery management.
 
 > [!IMPORTANT]
-> This repository is in early implementation. The `v0.1.1` development preview
-> makes the singleton fleet config entry installable through HACS, while the
-> repository provides test tooling and a development container. Miner discovery,
-> monitoring, configuration, and recovery have not been implemented, so it is
-> not a stable functional miner management release. See [TODO.md](TODO.md) for
-> implementation progress and [PROJECT.md](PROJECT.md) for the complete
-> technical design.
+> This repository is in early implementation. The installed `v0.1.1` development
+> preview only creates the Bitaxe Fleet hub. The forthcoming `v0.2.0` adds manual
+> private-IPv4 enrollment and basic monitoring, but automatic discovery,
+> configuration, recovery, incidents, and the fleet panel remain unimplemented.
+> See [TODO.md](TODO.md) for implementation progress and [PROJECT.md](PROJECT.md)
+> for the complete technical design.
 
 ## Goals
 
@@ -60,6 +60,27 @@ HACS.
 The initial releases will be installed as a HACS custom repository. Inclusion
 in the default HACS repository can be requested after the integration has
 stable releases, documentation, tests, and real-device validation.
+
+## Manual Setup
+
+The forthcoming `v0.2.0` onboarding milestone provides the first usable setup
+path. After installing that release, open **Settings > Devices & services >
+Bitaxe Fleet > Configure**, then enter a miner's private IPv4 address.
+
+- Only RFC 1918 IPv4 addresses are accepted. Hostnames, public addresses,
+  loopback, link-local, multicast, and arbitrary URLs are rejected.
+- Bitaxe Fleet sends one bounded, redirect-free `GET /api/system/info` request
+  and requires a valid AxeOS `ASICModel` and `macAddr` response.
+- Submitting the address is the administrator's explicit approval to enroll that
+  miner. The normalized MAC address becomes the permanent device identity.
+- The integration stores only the endpoint and safe display metadata. It does
+  not store raw responses, pool credentials, Wi-Fi credentials, or passwords.
+- After the entry reloads, the miner appears as one Home Assistant device with
+  hashrate, power, and temperature sensors when the firmware provides them.
+
+This is manual onboarding, not automatic discovery. A miner moving to another
+address can be submitted again; matching MAC addresses update the existing
+enrollment rather than creating another device.
 
 ## Miner Identity And Discovery
 
