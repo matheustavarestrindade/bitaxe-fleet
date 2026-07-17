@@ -13,12 +13,11 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: Phase 1 implementation scaffold.
+- Project state: Phase 1 implementation scaffold complete.
 - Installable integration: not yet available; no miner API behavior exists.
 - Current release: none.
 - Documentation phase: complete.
-- Active implementation phase: Phase 1.
-- Next planned behavior phase: Phase 2 typed AxeOS boundary.
+- Next implementation phase: Phase 2 typed AxeOS boundary.
 
 ## Status Rules
 
@@ -211,7 +210,7 @@ the named implementation gate instead of guessing it in unrelated work.
 ### Phase 1 Gate
 
 - [x] Full local verification passes, including metadata and Markdown validation.
-- [ ] CI passes from a clean checkout.
+- [x] CI passes from a clean checkout.
 - [x] Home Assistant starts with the empty fleet integration loaded.
 - [x] No miner network request occurs yet.
 

@@ -25,7 +25,7 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-17, Phase 1 is in progress. The repository contains a typed
+As of 2026-07-17, Phase 1 is complete. The repository contains a typed
 singleton config-entry scaffold, strict Python and TypeScript tooling, a
 development container, local lifecycle/config-flow tests, and validation CI.
 It does not yet discover or contact miners, expose entities, register a panel,
