@@ -13,11 +13,12 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: the `0.3.1` release candidate is under final validation.
-- Published release: `v0.2.0` provides manual private-IPv4 enrollment and basic
-  monitoring.
+- Project state: the `0.4.0` release candidate is under final validation.
+- Published release: `v0.3.1` provides private-IPv4 enrollment, discovery,
+  controls, recovery, and basic monitoring.
 - Candidate scope: typed AxeOS capabilities/logs/mutations, approval-based mDNS
-  and bounded scanning, profiles, controls, incidents, diagnostics, the panel,
+  and bounded scanning, profiles, controls, incidents, diagnostics, expanded
+  native telemetry/health entities, Recorder-backed history graphs, the panel,
   and opt-in automatic responsive recovery are implemented.
 - Remaining release-readiness work: real-device validation, optional external
   pool support, broader fleet aggregate entities, and the scenario coverage
@@ -36,8 +37,8 @@ recovery; real-device compatibility evidence remains a release-readiness task.
 - [x] Normalize `macAddr`, persist approved miner endpoint and metadata through
   Home Assistant `Store`, and preserve one record when the same MAC is submitted
   at a new address.
-- [x] Create one per-miner coordinator, device, and native hashrate, power, and
-  temperature sensors from validated snapshots.
+- [x] Create one per-miner coordinator, device, expanded native telemetry/health
+  entities, and Recorder-backed history graphs from validated snapshots.
 - [x] Add synthetic AxeOS fixtures and parser, HTTP, storage, options-flow,
   lifecycle, and entity tests.
 - [x] Add typed `/api/system/asic`, logs, and mutation support with synthetic
@@ -443,15 +444,15 @@ the named implementation gate instead of guessing it in unrelated work.
 
 ### Entity Descriptions
 
-- [ ] Inventory validated API fields and choose the smallest useful platform
+- [x] Inventory validated API fields and choose the smallest useful platform
   set.
-- [ ] Add sensor descriptions with correct units, classes, precision, and
+- [x] Add sensor descriptions with correct units, classes, precision, and
   translation keys.
-- [ ] Add binary sensor descriptions for validated health/fault states.
+- [x] Add binary sensor descriptions for validated health/fault states.
 - [ ] Keep noisy diagnostic entities disabled by default.
-- [ ] Do not create unsupported hardware-dependent values as zero.
-- [ ] Use stable unique IDs based on miner ID and entity key.
-- [ ] Verify recorder/statistics semantics for counters and measurements.
+- [x] Do not create unsupported hardware-dependent values as zero.
+- [x] Use stable unique IDs based on miner ID and entity key.
+- [x] Verify recorder/statistics semantics for counters and measurements.
 
 ### Fleet Aggregates
 
@@ -475,8 +476,8 @@ the named implementation gate instead of guessing it in unrelated work.
 
 ### Phase 5 Gate
 
-- [ ] Approved miners provide trustworthy native Home Assistant monitoring.
-- [ ] Recorder history can support the future panel charts.
+- [x] Approved miners provide trustworthy native Home Assistant monitoring.
+- [x] Recorder history powers bounded panel charts.
 - [ ] No mutating entity or automatic recovery exists yet.
 
 ## Phase 6: Profiles And Explicit Manual Controls
@@ -707,7 +708,7 @@ the named implementation gate instead of guessing it in unrelated work.
 - [ ] Show pending candidates and explicit approve/reject actions.
 - [ ] Show bounded scan progress and results.
 - [ ] Show miner telemetry, health evidence, endpoint state, and capabilities.
-- [ ] Query recorder/statistics for history charts.
+- [x] Query Recorder for bounded native-entity history charts.
 - [ ] Show stale, unsupported, partial, and unavailable states distinctly.
 
 ### Profile And Recovery Views

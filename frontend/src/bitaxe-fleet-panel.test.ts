@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BitaxeFleetPanel,
   PANEL_TAG,
+  createHistoryPath,
   parseDiscoveryListResponse,
   parseFleetListResponse,
   parseIncidentsListResponse,
+  parseMinerTelemetryHistory,
 } from "./bitaxe-fleet-panel";
 import type { HomeAssistant, WebSocketCommand } from "./bitaxe-fleet-panel";
 
@@ -106,6 +108,31 @@ function incidentsDto(): Record<string, unknown> {
   };
 }
 
+function historyDto(): Record<string, unknown> {
+  return {
+    available: true,
+    end_at: "2026-07-17T09:00:00+00:00",
+    miner_id: "aa:bb:cc:dd:ee:ff",
+    schema_version: 1,
+    series: {
+      hashrate_gh_s: [
+        { at: "2026-07-17T08:00:00+00:00", value: 650 },
+        { at: "2026-07-17T08:30:00+00:00", value: null },
+        { at: "2026-07-17T09:00:00+00:00", value: 700 },
+      ],
+      power_w: [
+        { at: "2026-07-17T08:00:00+00:00", value: 17.2 },
+        { at: "2026-07-17T09:00:00+00:00", value: 18.5 },
+      ],
+      temperature_c: [
+        { at: "2026-07-17T08:00:00+00:00", value: 50.5 },
+        { at: "2026-07-17T09:00:00+00:00", value: 51.2 },
+      ],
+    },
+    start_at: "2026-07-17T08:00:00+00:00",
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolvePromise: ((value: T) => void) | null = null;
   const promise = new Promise<T>((resolve) => {
@@ -163,6 +190,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     expect(fleet.miners[0]?.policy.overheat_policy).toBe("keep_safe_values");
     expect(parseDiscoveryListResponse(discoveryDto()).candidates).toHaveLength(1);
     expect(parseIncidentsListResponse(incidentsDto()).incidents).toHaveLength(1);
+    expect(parseMinerTelemetryHistory(historyDto()).series.hashrate_gh_s).toHaveLength(3);
 
     const partialMiner = minerDto();
     partialMiner["firmware"] = null;
@@ -210,6 +238,23 @@ describe("BitaxeFleetPanel DTO boundary", () => {
         scan: scanDto(),
       }),
     ).toThrow("Unexpected Bitaxe Fleet response");
+
+    const invalidHistory = historyDto();
+    const series = invalidHistory["series"] as Record<string, unknown>;
+    series["power_w"] = [{ at: "not-a-timestamp", value: 18.5 }];
+    expect(() => parseMinerTelemetryHistory(invalidHistory)).toThrow(
+      "Unexpected Bitaxe Fleet response",
+    );
+  });
+
+  it("creates disconnected graph segments for unavailable history points", () => {
+    expect(
+      createHistoryPath([
+        { at: "2026-07-17T08:00:00+00:00", value: 650 },
+        { at: "2026-07-17T08:30:00+00:00", value: null },
+        { at: "2026-07-17T09:00:00+00:00", value: 700 },
+      ]),
+    ).toMatch(/^M.* M/);
   });
 });
 
@@ -369,6 +414,43 @@ describe("BitaxeFleetPanel", () => {
 
     await vi.waitFor(() => {
       expect(buttonWithText(element.shadowRoot, "Restart").disabled).toBe(false);
+    });
+  });
+
+  it("loads and refreshes recorder history only after an administrator requests it", async () => {
+    const calls: WebSocketCommand[] = [];
+    const callWS = (message: WebSocketCommand): Promise<unknown> => {
+      calls.push(message);
+      if (message.type === "bitaxe_fleet/miner/history") {
+        return Promise.resolve(historyDto());
+      }
+      return Promise.resolve(dashboardResponse(message));
+    };
+    const element = new BitaxeFleetPanel();
+    element.hass = { callWS };
+    document.body.append(element);
+
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.textContent).toContain("Rack A-01");
+    });
+    expect(
+      calls.filter((call) => call.type === "bitaxe_fleet/miner/history"),
+    ).toHaveLength(0);
+
+    buttonWithText(element.shadowRoot, "History").click();
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.textContent).toContain("History: Rack A-01");
+      expect(element.shadowRoot?.querySelectorAll(".history-chart")).toHaveLength(3);
+    });
+    expect(
+      calls.filter((call) => call.type === "bitaxe_fleet/miner/history"),
+    ).toHaveLength(1);
+
+    buttonWithText(element.shadowRoot, "Refresh history").click();
+    await vi.waitFor(() => {
+      expect(
+        calls.filter((call) => call.type === "bitaxe_fleet/miner/history"),
+      ).toHaveLength(2);
     });
   });
 

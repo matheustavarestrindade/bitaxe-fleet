@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-18
+
+### Added
+
+- 29 native AxeOS telemetry sensors covering the reference dashboard's
+  hashrate, power, voltage, current, temperature, frequency, fan, share,
+  difficulty, and uptime metrics, plus validated extended telemetry.
+- Five native health binary sensors for mining state, fallback pool,
+  overheating, power faults, and hardware faults.
+- A bounded 24-hour performance and thermal history view in the administrator
+  panel using Home Assistant Recorder data without duplicate integration storage.
+
+### Fixed
+
+- Newly approved miners now add entities on Home Assistant's event loop rather
+  than from a dispatcher executor thread.
+
 ## [0.3.1] - 2026-07-17
 
 ### Fixed

@@ -15,7 +15,10 @@ normalized MAC address rather than a changing DHCP address.
 - AxeOS mDNS discovery and administrator-started, bounded private-CIDR scans.
 - Explicit approval or rejection for every discovered unknown MAC address.
 - MAC-safe endpoint updates when an enrolled miner moves to a new IP address.
-- Native Home Assistant devices with hashrate, power, and temperature sensors.
+- Native Home Assistant miner devices with 29 typed telemetry sensors and five
+  health binary sensors.
+- A Recorder-backed, administrator-only 24-hour performance and thermal graph
+  for each enrolled miner.
 - Typed reads for AxeOS system information, ASIC capabilities, and bounded logs.
 - Explicit restart, pause, resume, identify, profile capture, and profile apply
   controls through administrator-only services and the fleet panel.
@@ -56,16 +59,24 @@ appear as a separate approval candidate.
 
 ## Monitoring
 
-Each enrolled miner has native Home Assistant sensors for:
+Each enrolled miner has native Home Assistant entities for the AxeOS telemetry
+used by the referenced dashboard and additional validated firmware fields:
 
-- Hashrate in GH/s.
-- Power in W.
-- Temperature in C.
+- Current, rolling, and expected hashrate; error rate; power; input voltage;
+  current; temperatures; frequency; core voltage; and fan speed/RPM.
+- Accepted/rejected shares, best/session/pool difficulty, pool response time,
+  Wi-Fi signal, uptime, block height, network difficulty, and blocks found.
+- Mining, fallback-pool, overheating, power-fault, and hardware-fault binary
+  health states.
 
-Missing AxeOS fields remain unavailable rather than becoming fabricated zero
-values. The fleet panel shows current telemetry, online freshness, basic health
-flags, saved profile state, candidate status, scan progress, incidents, and
-on-demand redacted logs.
+The administrator panel lazily displays a 24-hour hashrate, power, and
+temperature graph using Home Assistant Recorder data. Bitaxe Fleet does not
+duplicate sensor history in its own storage: graphs are unavailable if Recorder
+is disabled, excludes the native sensors, or has already purged the requested
+window. Missing AxeOS fields and unavailable readings remain unavailable rather
+than becoming fabricated zero values. The fleet panel also shows current
+telemetry, online freshness, saved profile state, candidate status, scan
+progress, incidents, and on-demand redacted logs.
 
 ## Controls And Profiles
 

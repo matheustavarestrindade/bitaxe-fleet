@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
@@ -9,7 +10,13 @@ from homeassistant.components.websocket_api.connection import ActiveConnection
 from homeassistant.core import HomeAssistant
 
 from custom_components.bitaxe_fleet.axeos.models import OverheatPolicy
+from custom_components.bitaxe_fleet.axeos.parser import normalize_miner_id
+from custom_components.bitaxe_fleet.history import (
+    MinerTelemetryHistory,
+    TelemetryHistoryPoint,
+)
 from custom_components.bitaxe_fleet.websocket import (
+    _history_dto,
     _policy_from_message,
     _runtime_or_error,
 )
@@ -75,3 +82,27 @@ def test_policy_boundary_requires_an_exact_strict_shape() -> None:
     bad_boolean["automatic_recovery_enabled"] = 1
     with pytest.raises(ValueError, match="invalid policy"):
         _policy_from_message(bad_boolean)
+
+
+def test_history_dto_exposes_only_bounded_graph_data() -> None:
+    """History responses retain points and omit recorder entity identifiers."""
+    observed_at = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+    history = MinerTelemetryHistory(
+        start_at=observed_at,
+        end_at=observed_at,
+        recorder_available=True,
+        hashrate_gh_s=(TelemetryHistoryPoint(observed_at, 650.0),),
+        power_w=(TelemetryHistoryPoint(observed_at, None),),
+        temperature_c=(),
+    )
+
+    dto = _history_dto(normalize_miner_id("02:12:34:56:78:9a"), history)
+
+    assert dto["available"] is True
+    assert dto["schema_version"] == 1
+    assert dto["series"] == {
+        "hashrate_gh_s": [{"at": observed_at.isoformat(), "value": 650.0}],
+        "power_w": [{"at": observed_at.isoformat(), "value": None}],
+        "temperature_c": [],
+    }
+    assert "sensor." not in str(dto)

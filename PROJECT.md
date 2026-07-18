@@ -25,11 +25,13 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-17, the `0.3.1` release candidate extends the completed manual
-onboarding milestone with mDNS and bounded explicit scanning, approval-based
-discovery, typed AxeOS capabilities/logs/mutations, profiles, administrator
-controls, incidents, diagnostics, an administrator panel, and opt-in automatic
-responsive recovery.
+As of 2026-07-18, the published `0.3.1` release provides completed manual
+onboarding, mDNS and bounded explicit scanning, approval-based discovery, typed
+AxeOS capabilities/logs/mutations, profiles, administrator controls, incidents,
+diagnostics, an administrator panel, and opt-in automatic responsive recovery.
+The `0.4.0` release candidate adds the complete validated native telemetry and
+health entity set plus Recorder-backed performance and thermal history in the
+administrator panel.
 
 The implementation remains deliberately conservative. Only explicitly approved
 RFC 1918 endpoints are contacted, recovery is disabled by default, and a real

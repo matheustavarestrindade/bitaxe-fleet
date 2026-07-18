@@ -112,6 +112,24 @@ export interface IncidentsListResponse {
   incidents: Incident[];
 }
 
+export interface TelemetryHistoryPoint {
+  at: string;
+  value: number | null;
+}
+
+export interface MinerTelemetryHistory {
+  available: boolean;
+  end_at: string;
+  miner_id: string;
+  schema_version: 1;
+  series: {
+    hashrate_gh_s: TelemetryHistoryPoint[];
+    power_w: TelemetryHistoryPoint[];
+    temperature_c: TelemetryHistoryPoint[];
+  };
+  start_at: string;
+}
+
 export type WebSocketCommand =
   | { type: "bitaxe_fleet/fleet/list" }
   | { type: "bitaxe_fleet/discovery/list" }
@@ -131,7 +149,8 @@ export type WebSocketCommand =
       policy: RecoveryPolicy;
     }
   | { type: "bitaxe_fleet/logs/get"; miner_id: string }
-  | { type: "bitaxe_fleet/incidents/list" };
+  | { type: "bitaxe_fleet/incidents/list" }
+  | { type: "bitaxe_fleet/miner/history"; miner_id: string };
 
 interface ScanStartResponse {
   scan: Scan;
@@ -457,6 +476,39 @@ export function parseIncidentsListResponse(value: unknown): IncidentsListRespons
   };
 }
 
+function parseTelemetryHistoryPoint(value: unknown): TelemetryHistoryPoint {
+  const record = asRecord(value);
+  return {
+    at: readRequiredTimestamp(record, "at"),
+    value: readNullableFiniteNumber(record, "value"),
+  };
+}
+
+export function parseMinerTelemetryHistory(value: unknown): MinerTelemetryHistory {
+  const record = asRecord(value);
+  if (readFiniteNumber(record, "schema_version") !== 1) {
+    invalidDto();
+  }
+  const startAt = readRequiredTimestamp(record, "start_at");
+  const endAt = readRequiredTimestamp(record, "end_at");
+  if (Date.parse(endAt) < Date.parse(startAt)) {
+    invalidDto();
+  }
+  const series = asRecord(record["series"]);
+  return {
+    available: readBoolean(record, "available"),
+    end_at: endAt,
+    miner_id: readString(record, "miner_id"),
+    schema_version: 1,
+    series: {
+      hashrate_gh_s: asArray(series["hashrate_gh_s"]).map(parseTelemetryHistoryPoint),
+      power_w: asArray(series["power_w"]).map(parseTelemetryHistoryPoint),
+      temperature_c: asArray(series["temperature_c"]).map(parseTelemetryHistoryPoint),
+    },
+    start_at: startAt,
+  };
+}
+
 function parseScanStartResponse(value: unknown): ScanStartResponse {
   return { scan: parseScan(asRecord(value)["scan"]) };
 }
@@ -554,6 +606,83 @@ function displayMinerMetadata(
 
 function formatMeasurement(value: number | null, unit: string): string {
   return value === null ? `-- ${unit}` : `${formatNumber(value)} ${unit}`;
+}
+
+const CHART_WIDTH = 640;
+const CHART_HEIGHT = 168;
+const CHART_PADDING = 12;
+const HISTORY_GAP_MS = 10 * 60 * 1_000;
+
+interface ChartPoint {
+  at: number;
+  value: number | null;
+}
+
+interface HistorySummary {
+  latest: number;
+  maximum: number;
+  minimum: number;
+}
+
+function chartPoints(points: readonly TelemetryHistoryPoint[]): ChartPoint[] {
+  return points
+    .map((point) => ({ at: Date.parse(point.at), value: point.value }))
+    .filter((point) => Number.isFinite(point.at));
+}
+
+function historySummary(
+  points: readonly TelemetryHistoryPoint[],
+): HistorySummary | null {
+  const values = points.flatMap((point) => point.value === null ? [] : [point.value]);
+  if (values.length === 0) {
+    return null;
+  }
+  return {
+    latest: values.at(-1) ?? values[0] ?? 0,
+    maximum: Math.max(...values),
+    minimum: Math.min(...values),
+  };
+}
+
+export function createHistoryPath(
+  points: readonly TelemetryHistoryPoint[],
+): string {
+  const chartData = chartPoints(points);
+  const values = chartData.flatMap((point) => point.value === null ? [] : [point.value]);
+  if (values.length === 0) {
+    return "";
+  }
+
+  const timestamps = chartData.map((point) => point.at);
+  const firstAt = Math.min(...timestamps);
+  const lastAt = Math.max(...timestamps);
+  const timeRange = Math.max(lastAt - firstAt, 1);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const valueRange = Math.max(maximum - minimum, Math.abs(maximum) * 0.1, 1);
+  const valueFloor = (minimum + maximum - valueRange) / 2;
+  const plotWidth = CHART_WIDTH - CHART_PADDING * 2;
+  const plotHeight = CHART_HEIGHT - CHART_PADDING * 2;
+  let previousAt: number | null = null;
+  let hasPath = false;
+  let path = "";
+
+  for (const point of chartData) {
+    if (point.value === null) {
+      previousAt = null;
+      continue;
+    }
+    const x = CHART_PADDING + ((point.at - firstAt) / timeRange) * plotWidth;
+    const y =
+      CHART_HEIGHT - CHART_PADDING - ((point.value - valueFloor) / valueRange) * plotHeight;
+    const command = !hasPath || previousAt === null || point.at - previousAt > HISTORY_GAP_MS
+      ? "M"
+      : "L";
+    path += `${command}${x.toFixed(2)} ${y.toFixed(2)} `;
+    previousAt = point.at;
+    hasPath = true;
+  }
+  return path.trim();
 }
 
 function actionLabel(action: MinerAction): string {
@@ -696,6 +825,10 @@ export class BitaxeFleetPanel extends LitElement {
   private scanNetwork = "";
   private scanPending = false;
   private selectedMinerId: string | null = null;
+  private selectedHistoryMinerId: string | null = null;
+  private historyByMinerId = new Map<string, MinerTelemetryHistory>();
+  private historyErrorMinerIds = new Set<string>();
+  private historyPendingMinerIds = new Set<string>();
   private pendingCandidateIds = new Set<string>();
   private pendingMinerIds = new Set<string>();
   private initialLoadStarted = false;
@@ -1104,6 +1237,100 @@ export class BitaxeFleetPanel extends LitElement {
       white-space: nowrap;
     }
 
+    .history-panel {
+      border-block-start: 1px solid var(--fleet-border);
+      padding: 1rem;
+    }
+
+    .history-header {
+      align-items: flex-start;
+      display: flex;
+      gap: 1rem;
+      justify-content: space-between;
+      margin-block-end: 0.85rem;
+    }
+
+    .history-header h3 {
+      font-size: 0.92rem;
+    }
+
+    .history-header p {
+      color: var(--fleet-muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
+      margin-block-start: 0.2rem;
+    }
+
+    .history-grid {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .history-chart {
+      background: color-mix(in srgb, var(--fleet-canvas) 64%, transparent);
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.45rem;
+      margin: 0;
+      min-inline-size: 0;
+      overflow: hidden;
+      padding: 0.7rem;
+    }
+
+    .history-chart figcaption {
+      align-items: baseline;
+      display: flex;
+      gap: 0.5rem;
+      justify-content: space-between;
+      margin-block-end: 0.5rem;
+    }
+
+    .history-chart strong {
+      font-size: 0.78rem;
+    }
+
+    .history-chart-summary {
+      color: var(--fleet-muted);
+      font-size: 0.67rem;
+      font-variant-numeric: tabular-nums;
+      text-align: end;
+    }
+
+    .history-chart svg {
+      block-size: auto;
+      display: block;
+      inline-size: 100%;
+      min-inline-size: 13rem;
+    }
+
+    .history-gridline {
+      stroke: color-mix(in srgb, var(--fleet-border) 85%, transparent);
+      stroke-width: 1;
+    }
+
+    .history-line {
+      fill: none;
+      stroke: var(--fleet-accent);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 3;
+    }
+
+    .history-chart.power .history-line {
+      stroke: var(--fleet-warning);
+    }
+
+    .history-chart.temperature .history-line {
+      stroke: var(--fleet-danger);
+    }
+
+    .history-empty {
+      color: var(--fleet-muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      padding-block: 1rem;
+    }
+
     .health-list,
     .actions,
     .profile-actions {
@@ -1283,7 +1510,8 @@ export class BitaxeFleetPanel extends LitElement {
       }
 
       .scan-layout,
-      .diagnostics-grid {
+      .diagnostics-grid,
+      .history-grid {
         grid-template-columns: 1fr;
       }
 
@@ -1296,6 +1524,10 @@ export class BitaxeFleetPanel extends LitElement {
 
       .log-controls {
         inline-size: 100%;
+      }
+
+      .history-header {
+        flex-direction: column;
       }
 
       .log-controls select {
@@ -1570,6 +1802,7 @@ export class BitaxeFleetPanel extends LitElement {
           </tbody>
         </table>
       </div>
+      ${this.renderHistoryPanel()}
     `;
   }
 
@@ -1623,6 +1856,9 @@ export class BitaxeFleetPanel extends LitElement {
         </td>
         <td>
           <div class="actions">
+            <button @click=${() => void this.toggleHistory(miner)}>
+              ${this.selectedHistoryMinerId === miner.miner_id ? "Hide history" : "History"}
+            </button>
             <button
               class="danger-button"
               ?disabled=${busy}
@@ -1662,6 +1898,136 @@ export class BitaxeFleetPanel extends LitElement {
       <span class="metric">${formatMeasurement(telemetry.hashrate_gh_s, "GH/s")}</span>
       <span class="metric">${formatMeasurement(telemetry.power_w, "W")}</span>
       <span class="metric">${formatMeasurement(telemetry.temperature_c, "deg C")}</span>
+    `;
+  }
+
+  private renderHistoryPanel() {
+    const miner = this.fleet?.miners.find(
+      (candidate) => candidate.miner_id === this.selectedHistoryMinerId,
+    );
+    if (miner === undefined) {
+      return nothing;
+    }
+    const history = this.historyByMinerId.get(miner.miner_id);
+    const pending = this.historyPendingMinerIds.has(miner.miner_id);
+    const failed = this.historyErrorMinerIds.has(miner.miner_id);
+    return html`
+      <section class="history-panel" aria-labelledby="history-title">
+        <header class="history-header">
+          <div>
+            <h3 id="history-title">History: ${displayMinerName(miner)}</h3>
+            <p>
+              Recorder-backed telemetry for the past 24 hours. Missing readings are
+              shown as gaps rather than zero.
+            </p>
+          </div>
+          <button
+            ?disabled=${pending || this.hass === undefined}
+            @click=${() => void this.loadHistory(miner)}
+          >
+            ${pending ? "Loading history..." : "Refresh history"}
+          </button>
+        </header>
+        ${
+          pending
+            ? html`<p class="history-empty" role="status">Loading recorder history...</p>`
+            : failed
+              ? html`
+                  <p class="history-empty" role="alert">
+                    History could not be loaded. Check Recorder availability and try again.
+                  </p>
+                `
+              : history === undefined
+                ? html`<p class="history-empty">History has not been requested yet.</p>`
+                : !history.available
+                  ? html`
+                      <p class="history-empty">
+                        Home Assistant Recorder is unavailable, so no historical data can be
+                        shown.
+                      </p>
+                    `
+                  : this.renderHistoryCharts(history)
+        }
+      </section>
+    `;
+  }
+
+  private renderHistoryCharts(history: MinerTelemetryHistory) {
+    const series = history.series;
+    if (
+      historySummary(series.hashrate_gh_s) === null &&
+      historySummary(series.power_w) === null &&
+      historySummary(series.temperature_c) === null
+    ) {
+      return html`
+        <p class="history-empty">
+          No recorded history is available yet. Home Assistant starts recording after these
+          sensors are added and only retains data allowed by its Recorder settings.
+        </p>
+      `;
+    }
+    return html`
+      <div class="history-grid">
+        ${this.renderHistoryChart(
+          "Hashrate",
+          "GH/s",
+          "hashrate",
+          series.hashrate_gh_s,
+        )}
+        ${this.renderHistoryChart("Power", "W", "power", series.power_w)}
+        ${this.renderHistoryChart(
+          "Temperature",
+          "deg C",
+          "temperature",
+          series.temperature_c,
+        )}
+      </div>
+    `;
+  }
+
+  private renderHistoryChart(
+    title: string,
+    unit: string,
+    tone: "hashrate" | "power" | "temperature",
+    points: readonly TelemetryHistoryPoint[],
+  ) {
+    const summary = historySummary(points);
+    if (summary === null) {
+      return html`
+        <figure class="history-chart ${tone}">
+          <figcaption><strong>${title}</strong></figcaption>
+          <p class="history-empty">No recorded data.</p>
+        </figure>
+      `;
+    }
+    const path = createHistoryPath(points);
+    return html`
+      <figure class="history-chart ${tone}">
+        <figcaption>
+          <strong>${title}</strong>
+          <span class="history-chart-summary">
+            ${formatMeasurement(summary.latest, unit)} latest
+          </span>
+        </figcaption>
+        <svg
+          aria-label=${`${title} history`}
+          role="img"
+          viewBox="0 0 ${CHART_WIDTH} ${CHART_HEIGHT}"
+        >
+          <line
+            class="history-gridline"
+            x1=${CHART_PADDING}
+            x2=${CHART_WIDTH - CHART_PADDING}
+            y1=${CHART_HEIGHT / 2}
+            y2=${CHART_HEIGHT / 2}
+          ></line>
+          <path class="history-line" d=${path}></path>
+        </svg>
+        <span class="history-chart-summary">
+          Min ${formatMeasurement(summary.minimum, unit)} / max
+          ${formatMeasurement(summary.maximum, unit)}
+        </span>
+      </figure>
     `;
   }
 
@@ -2144,6 +2510,55 @@ export class BitaxeFleetPanel extends LitElement {
     void this.loadLogs();
   };
 
+  private async toggleHistory(miner: Miner): Promise<void> {
+    if (this.selectedHistoryMinerId === miner.miner_id) {
+      this.selectedHistoryMinerId = null;
+      this.requestUpdate();
+      return;
+    }
+    this.selectedHistoryMinerId = miner.miner_id;
+    this.requestUpdate();
+    if (!this.historyByMinerId.has(miner.miner_id)) {
+      await this.loadHistory(miner);
+    }
+  }
+
+  private async loadHistory(miner: Miner): Promise<void> {
+    if (this.historyPendingMinerIds.has(miner.miner_id)) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.historyPendingMinerIds.add(miner.miner_id);
+    this.historyErrorMinerIds.delete(miner.miner_id);
+    this.requestUpdate();
+    try {
+      const response = parseMinerTelemetryHistory(
+        await hass.callWS({
+          type: "bitaxe_fleet/miner/history",
+          miner_id: miner.miner_id,
+        }),
+      );
+      if (response.miner_id !== miner.miner_id) {
+        invalidDto();
+      }
+      if (this.hass === undefined) {
+        return;
+      }
+      this.historyByMinerId.set(miner.miner_id, response);
+    } catch {
+      if (this.hass !== undefined) {
+        this.historyErrorMinerIds.add(miner.miner_id);
+      }
+    } finally {
+      this.historyPendingMinerIds.delete(miner.miner_id);
+      this.requestUpdate();
+    }
+  }
+
   private loadWhenHassAvailable(): void {
     if (this.hass === undefined || this.initialLoadStarted) {
       return;
@@ -2259,15 +2674,23 @@ export class BitaxeFleetPanel extends LitElement {
   private reconcileSelectedMiner(): void {
     if (this.fleet === null) {
       this.selectedMinerId = null;
+      this.selectedHistoryMinerId = null;
       return;
     }
     if (
-      this.selectedMinerId !== null &&
-      this.fleet.miners.some((miner) => miner.miner_id === this.selectedMinerId)
+      this.selectedMinerId === null ||
+      !this.fleet.miners.some((miner) => miner.miner_id === this.selectedMinerId)
     ) {
-      return;
+      this.selectedMinerId = this.fleet.miners[0]?.miner_id ?? null;
     }
-    this.selectedMinerId = this.fleet.miners[0]?.miner_id ?? null;
+    if (
+      this.selectedHistoryMinerId !== null &&
+      !this.fleet.miners.some(
+        (miner) => miner.miner_id === this.selectedHistoryMinerId,
+      )
+    ) {
+      this.selectedHistoryMinerId = null;
+    }
   }
 
   private async startScan(): Promise<void> {

@@ -38,6 +38,101 @@
       },
       "temperature": {
         "name": "Temperature"
+      },
+      "hashrate_1m": {
+        "name": "Hashrate (1 minute)"
+      },
+      "hashrate_10m": {
+        "name": "Hashrate (10 minutes)"
+      },
+      "hashrate_1h": {
+        "name": "Hashrate (1 hour)"
+      },
+      "expected_hashrate": {
+        "name": "Expected hashrate"
+      },
+      "error_percentage": {
+        "name": "Error rate"
+      },
+      "voltage": {
+        "name": "Input voltage"
+      },
+      "current": {
+        "name": "Current"
+      },
+      "secondary_temperature": {
+        "name": "Secondary temperature"
+      },
+      "vr_temperature": {
+        "name": "Voltage regulator temperature"
+      },
+      "frequency": {
+        "name": "Frequency"
+      },
+      "actual_frequency": {
+        "name": "Actual frequency"
+      },
+      "core_voltage": {
+        "name": "Core voltage"
+      },
+      "fan_speed": {
+        "name": "Fan speed"
+      },
+      "fan_rpm": {
+        "name": "Fan speed (RPM)"
+      },
+      "fan_2_rpm": {
+        "name": "Second fan speed (RPM)"
+      },
+      "shares_accepted": {
+        "name": "Accepted shares"
+      },
+      "shares_rejected": {
+        "name": "Rejected shares"
+      },
+      "best_difficulty": {
+        "name": "Best difficulty"
+      },
+      "best_session_difficulty": {
+        "name": "Best session difficulty"
+      },
+      "pool_difficulty": {
+        "name": "Pool difficulty"
+      },
+      "pool_response_time": {
+        "name": "Pool response time"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "block_height": {
+        "name": "Block height"
+      },
+      "network_difficulty": {
+        "name": "Network difficulty"
+      },
+      "blocks_found": {
+        "name": "Blocks found"
+      }
+    },
+    "binary_sensor": {
+      "mining": {
+        "name": "Mining"
+      },
+      "fallback_pool": {
+        "name": "Fallback pool"
+      },
+      "overheating": {
+        "name": "Overheating"
+      },
+      "power_fault": {
+        "name": "Power fault"
+      },
+      "hardware_fault": {
+        "name": "Hardware fault"
       }
     }
   }

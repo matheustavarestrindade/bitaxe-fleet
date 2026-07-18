@@ -20,6 +20,7 @@ from .axeos.models import EnrolledMiner, MinerId, RecoveryPolicy
 from .axeos.parser import normalize_miner_id
 from .const import DOMAIN
 from .discovery.manager import DiscoveryError
+from .history import MinerTelemetryHistory, async_get_miner_telemetry_history
 from .redaction import redact_text
 from .runtime import BitaxeFleetRuntime, FleetActionError
 
@@ -34,6 +35,7 @@ _TYPE_PROFILE_APPLY = "bitaxe_fleet/profile/apply"
 _TYPE_POLICY_UPDATE = "bitaxe_fleet/policy/update"
 _TYPE_LOGS_GET = "bitaxe_fleet/logs/get"
 _TYPE_INCIDENTS_LIST = "bitaxe_fleet/incidents/list"
+_TYPE_MINER_HISTORY = "bitaxe_fleet/miner/history"
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
@@ -49,6 +51,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     async_register_command(hass, websocket_policy_update)
     async_register_command(hass, websocket_logs_get)
     async_register_command(hass, websocket_incidents_list)
+    async_register_command(hass, websocket_miner_history)
 
 
 @websocket_command({vol.Required("type"): _TYPE_FLEET_LIST})
@@ -318,6 +321,28 @@ async def websocket_incidents_list(
     )
 
 
+@websocket_command(
+    {vol.Required("type"): _TYPE_MINER_HISTORY, vol.Required("miner_id"): str}
+)
+@require_admin
+@async_response
+async def websocket_miner_history(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return a bounded Recorder-backed graph series for one approved miner."""
+    runtime = _runtime_or_error(hass, connection, msg)
+    if runtime is None:
+        return
+    miner_id = _miner_id(msg, connection)
+    if miner_id is None:
+        return
+    if runtime.registry.get(miner_id) is None:
+        connection.send_error(msg["id"], "unknown_miner", "Miner is not enrolled")
+        return
+    history = await async_get_miner_telemetry_history(hass, miner_id)
+    connection.send_result(msg["id"], _history_dto(miner_id, history))
+
+
 def _runtime(hass: HomeAssistant) -> BitaxeFleetRuntime:
     """Find the singleton typed runtime without accepting caller-provided entries."""
     entries = hass.config_entries.async_entries(DOMAIN)
@@ -404,6 +429,33 @@ def _candidate_dto(candidate: object) -> dict[str, object]:
         "model": candidate.identity.asic_model,
         "name": candidate.identity.display_name,
         "source": candidate.source.value,
+    }
+
+
+def _history_dto(
+    miner_id: MinerId, history: MinerTelemetryHistory
+) -> dict[str, object]:
+    """Serialize only bounded numeric recorder points for the panel graph."""
+    return {
+        "available": history.recorder_available,
+        "end_at": history.end_at.isoformat(),
+        "miner_id": str(miner_id),
+        "schema_version": 1,
+        "series": {
+            "hashrate_gh_s": [
+                {"at": point.observed_at.isoformat(), "value": point.value}
+                for point in history.hashrate_gh_s
+            ],
+            "power_w": [
+                {"at": point.observed_at.isoformat(), "value": point.value}
+                for point in history.power_w
+            ],
+            "temperature_c": [
+                {"at": point.observed_at.isoformat(), "value": point.value}
+                for point in history.temperature_c
+            ],
+        },
+        "start_at": history.start_at.isoformat(),
     }
 
 
