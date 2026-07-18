@@ -5,14 +5,15 @@
     "@matheustavarestrindade"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http",
+    "zeroconf"
+  ],
   "documentation": "https://github.com/matheustavarestrindade/bitaxe-fleet#readme",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/matheustavarestrindade/bitaxe-fleet/issues",
-  "dependencies": [
-    "zeroconf"
-  ],
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

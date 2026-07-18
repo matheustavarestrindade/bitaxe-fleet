@@ -25,7 +25,7 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-17, the `0.3.0` release candidate extends the completed manual
+As of 2026-07-17, the `0.3.1` release candidate extends the completed manual
 onboarding milestone with mDNS and bounded explicit scanning, approval-based
 discovery, typed AxeOS capabilities/logs/mutations, profiles, administrator
 controls, incidents, diagnostics, an administrator panel, and opt-in automatic

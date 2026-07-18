@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-17
+
+### Fixed
+
+- Declare the required Home Assistant HTTP dependency and config-entry-only
+  schema so the release passes Home Assistant metadata validation.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

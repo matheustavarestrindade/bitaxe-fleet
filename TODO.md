@@ -13,7 +13,7 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: the `0.3.0` release candidate is under final validation.
+- Project state: the `0.3.1` release candidate is under final validation.
 - Published release: `v0.2.0` provides manual private-IPv4 enrollment and basic
   monitoring.
 - Candidate scope: typed AxeOS capabilities/logs/mutations, approval-based mDNS
