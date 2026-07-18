@@ -1,0 +1,3 @@
+I (120) system: boot complete
+W (240) stratum: reconnecting after timeout
+I (360) miner: shares accepted=12 rejected=0

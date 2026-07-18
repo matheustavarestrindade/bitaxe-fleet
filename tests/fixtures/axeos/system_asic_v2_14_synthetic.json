@@ -1,0 +1,10 @@
+{
+  "ASICModel": "BM1368",
+  "asicCount": 1,
+  "defaultFrequency": 525,
+  "defaultVoltage": 1200,
+  "deviceModel": "Supra",
+  "frequencyOptions": [400, 450, 500, 525, 550],
+  "swarmColor": "green",
+  "voltageOptions": [1100, 1150, 1200, 1250]
+}

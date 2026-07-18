@@ -42,7 +42,7 @@ class BitaxeFleetMinerEntity(CoordinatorEntity[MinerCoordinator]):
             identifiers={(DOMAIN, str(identity.miner_id))},
             manufacturer=MANUFACTURER,
             model=identity.asic_model or identity.board_version,
-            name=identity.display_name,
+            name=self.coordinator.miner.display_name or identity.display_name,
             sw_version=identity.firmware_version,
             via_device=(DOMAIN, self.coordinator.entry_id),
         )

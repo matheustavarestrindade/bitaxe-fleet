@@ -20,6 +20,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-17
+
+### Added
+
+- Explicit AxeOS mDNS discovery, bounded administrator-started private-CIDR
+  scans, and approval or rejection of discovered miners.
+- Typed ASIC capability, bounded log, profile, mutation, health, and recovery
+  policy support for documented AxeOS system endpoints.
+- Administrator services and an administrator-only Home Assistant panel for
+  scans, discovery approval, controls, profiles, policies, logs, and incidents.
+- Opt-in automatic responsive recovery with startup grace, consecutive failure
+  thresholds, cooldowns, rolling attempt budgets, restart verification, and
+  conservative thermal handling.
+- Versioned schema-2 storage for profiles, policies, candidate rejections, and
+  bounded incidents, including migration from the released schema-1 enrollment
+  records.
+
+### Fixed
+
+- Mutating controls now perform a fresh same-MAC read before acting, preventing
+  an IP address reused by a different miner from receiving a command.
+- mDNS discovery now accepts only strict RFC 1918 IPv4 endpoints.
+- Known-length AxeOS response streams are fully collected before parsing, and
+  valid large firmware logs retain a bounded recent tail for the panel.
+
+### Security
+
+- Incident persistence, panel logs, WebSocket output, and diagnostics redact
+  likely credentials, endpoints, MAC addresses, URLs, SSIDs, and wallet data.
+- Automatic recovery attempt budgets are retained through Home Assistant
+  restarts, preventing a restart loop from resetting its own safety limit.
+
 ## [0.2.0] - 2026-07-17
 
 ### Added

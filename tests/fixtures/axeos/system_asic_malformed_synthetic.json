@@ -1,0 +1,5 @@
+{
+  "ASICModel": "BM1368",
+  "frequencyOptions": [500, "NaN"],
+  "voltageOptions": [1100, 1200]
+}

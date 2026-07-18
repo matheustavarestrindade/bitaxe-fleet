@@ -25,17 +25,18 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-17, the initial manual-onboarding milestone is complete. The
-repository contains the typed singleton config-entry scaffold, strict Python and
-TypeScript tooling, a development container, local lifecycle/config-flow tests,
-and validation CI. An administrator can manually enroll an RFC 1918 IPv4 AxeOS
-host through the options flow; Bitaxe Fleet validates `/api/system/info`, stores
-the normalized `macAddr`, polls the enrolled miner, and exposes hashrate, power,
-and temperature sensors under one Home Assistant device.
+As of 2026-07-17, the `0.3.0` release candidate extends the completed manual
+onboarding milestone with mDNS and bounded explicit scanning, approval-based
+discovery, typed AxeOS capabilities/logs/mutations, profiles, administrator
+controls, incidents, diagnostics, an administrator panel, and opt-in automatic
+responsive recovery.
 
-Automatic discovery, active scanning, profiles, controls, recovery, incidents,
-diagnostics, and the custom panel remain unimplemented. This milestone must not
-be described as complete fleet management or automatic discovery.
+The implementation remains deliberately conservative. Only explicitly approved
+RFC 1918 endpoints are contacted, recovery is disabled by default, and a real
+device must be validated before enabling automatic recovery in production.
+Optional Satoshi Radio support, smart-plug recovery, full unreachable-device
+recovery, and broader fleet aggregate entities remain out of scope for this
+release candidate.
 
 ## Product Definition
 

@@ -1,42 +1,2710 @@
-import { css, html, LitElement } from "lit";
+import { css, html, LitElement, nothing } from "lit";
+import type { PropertyValues } from "lit";
 
 export const PANEL_TAG = "bitaxe-fleet-panel";
-const DEVELOPMENT_STATUS =
-  "The fleet panel is not available in this development build.";
+
+const STALE_AFTER_MS = 90_000;
+const STALE_CLOCK_INTERVAL_MS = 15_000;
+const SCAN_POLL_INTERVAL_MS = 2_500;
+
+export type MinerAction = "restart" | "pause" | "resume" | "identify";
+export type OverheatPolicy =
+  | "keep_safe_values"
+  | "restore_after_cooldown"
+  | "log_only";
+
+export interface HomeAssistant {
+  callWS(message: WebSocketCommand): Promise<unknown>;
+}
+
+export interface Telemetry {
+  hashrate_gh_s: number | null;
+  power_w: number | null;
+  temperature_c: number | null;
+}
+
+export interface MinerHealth {
+  mining_paused: boolean | null;
+  overheat_mode: boolean | number | null;
+  power_fault: boolean;
+  hardware_fault: boolean;
+}
+
+export interface MinerProfile {
+  automatic_fan_speed: boolean;
+  core_voltage_mv: number;
+  frequency_mhz: number;
+  minimum_fan_speed_percent: number;
+  overclock_enabled: boolean;
+  target_temperature_c: number;
+}
+
+export interface RecoveryPolicy {
+  automatic_profile_restore_enabled: boolean;
+  automatic_recovery_enabled: boolean;
+  consecutive_unhealthy_required: number;
+  cooldown_seconds: number;
+  max_attempts: number;
+  overheat_policy: OverheatPolicy;
+  post_restart_timeout_seconds: number;
+  rolling_window_seconds: number;
+  startup_grace_seconds: number;
+  verification_timeout_seconds: number;
+}
+
+export interface Miner {
+  miner_id: string;
+  name: string;
+  model: string | null;
+  firmware: string | null;
+  endpoint: string;
+  enabled: boolean;
+  online: boolean;
+  last_success_at: string | null;
+  telemetry: Telemetry | null;
+  health: MinerHealth | null;
+  profile: MinerProfile | null;
+  policy: RecoveryPolicy;
+}
+
+export interface Scan {
+  completed_at: string | null;
+  completed_hosts: number;
+  discovered_candidates: number;
+  error: string | null;
+  network: string | null;
+  running: boolean;
+  started_at: string | null;
+  total_hosts: number;
+}
+
+export interface FleetListResponse {
+  schema_version: 1;
+  miners: Miner[];
+  scan: Scan;
+}
+
+export interface DiscoveryCandidate {
+  miner_id: string;
+  name: string;
+  model: string | null;
+  firmware: string | null;
+  endpoint: string;
+  source: string;
+  last_seen_at: string;
+}
+
+export interface DiscoveryListResponse {
+  candidates: DiscoveryCandidate[];
+  scan: Scan;
+}
+
+export interface Incident {
+  cause: string;
+  detail: string;
+  id: string;
+  miner_id: string;
+  occurred_at: string;
+  outcome: string;
+}
+
+export interface IncidentsListResponse {
+  incidents: Incident[];
+}
+
+export type WebSocketCommand =
+  | { type: "bitaxe_fleet/fleet/list" }
+  | { type: "bitaxe_fleet/discovery/list" }
+  | { type: "bitaxe_fleet/discovery/scan"; network: string }
+  | { type: "bitaxe_fleet/discovery/approve"; miner_id: string }
+  | { type: "bitaxe_fleet/discovery/reject"; miner_id: string }
+  | {
+      type: "bitaxe_fleet/miner/action";
+      miner_id: string;
+      action: MinerAction;
+    }
+  | { type: "bitaxe_fleet/profile/capture"; miner_id: string }
+  | { type: "bitaxe_fleet/profile/apply"; miner_id: string }
+  | {
+      type: "bitaxe_fleet/policy/update";
+      miner_id: string;
+      policy: RecoveryPolicy;
+    }
+  | { type: "bitaxe_fleet/logs/get"; miner_id: string }
+  | { type: "bitaxe_fleet/incidents/list" };
+
+interface ScanStartResponse {
+  scan: Scan;
+}
+
+interface ProfileCaptureResponse {
+  profile: MinerProfile;
+}
+
+interface PolicyUpdateResponse {
+  policy: RecoveryPolicy;
+}
+
+interface LogsResponse {
+  text: string;
+}
+
+interface ApprovalResponse {
+  miner: Miner;
+}
+
+interface Feedback {
+  tone: "error" | "success";
+  text: string;
+}
+
+class DtoValidationError extends Error {
+  public constructor() {
+    super("Unexpected Bitaxe Fleet response");
+    this.name = "DtoValidationError";
+  }
+}
+
+function invalidDto(): never {
+  throw new DtoValidationError();
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    invalidDto();
+  }
+  return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown): unknown[] {
+  if (!Array.isArray(value)) {
+    invalidDto();
+  }
+  return value;
+}
+
+function readString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string") {
+    invalidDto();
+  }
+  return value;
+}
+
+function readNullableString(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key];
+  if (value !== null && typeof value !== "string") {
+    invalidDto();
+  }
+  return value;
+}
+
+function readBoolean(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  if (typeof value !== "boolean") {
+    invalidDto();
+  }
+  return value;
+}
+
+function readFiniteNumber(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    invalidDto();
+  }
+  return value;
+}
+
+function readNullableFiniteNumber(
+  record: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = record[key];
+  if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) {
+    invalidDto();
+  }
+  return value;
+}
+
+function readNullableBoolean(
+  record: Record<string, unknown>,
+  key: string,
+): boolean | null {
+  const value = record[key];
+  if (value !== null && typeof value !== "boolean") {
+    invalidDto();
+  }
+  return value;
+}
+
+function readOverheatMode(
+  record: Record<string, unknown>,
+  key: string,
+): boolean | number | null {
+  const value = record[key];
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)) {
+    return value;
+  }
+  return invalidDto();
+}
+
+function readNonNegativeInteger(
+  record: Record<string, unknown>,
+  key: string,
+): number {
+  const value = readFiniteNumber(record, key);
+  if (!Number.isInteger(value) || value < 0) {
+    invalidDto();
+  }
+  return value;
+}
+
+function readTimestamp(record: Record<string, unknown>, key: string): string | null {
+  const value = readNullableString(record, key);
+  if (value !== null && Number.isNaN(Date.parse(value))) {
+    invalidDto();
+  }
+  return value;
+}
+
+function readRequiredTimestamp(
+  record: Record<string, unknown>,
+  key: string,
+): string {
+  const value = readString(record, key);
+  if (Number.isNaN(Date.parse(value))) {
+    invalidDto();
+  }
+  return value;
+}
+
+function parseOverheatPolicy(value: unknown): OverheatPolicy {
+  if (value === "keep_safe_values") {
+    return value;
+  }
+  if (value === "restore_after_cooldown") {
+    return value;
+  }
+  if (value === "log_only") {
+    return value;
+  }
+  return invalidDto();
+}
+
+function parseTelemetry(value: unknown): Telemetry | null {
+  if (value === null) {
+    return null;
+  }
+  const record = asRecord(value);
+  return {
+    hashrate_gh_s: readNullableFiniteNumber(record, "hashrate_gh_s"),
+    power_w: readNullableFiniteNumber(record, "power_w"),
+    temperature_c: readNullableFiniteNumber(record, "temperature_c"),
+  };
+}
+
+function parseHealth(value: unknown): MinerHealth | null {
+  if (value === null) {
+    return null;
+  }
+  const record = asRecord(value);
+  return {
+    mining_paused: readNullableBoolean(record, "mining_paused"),
+    overheat_mode: readOverheatMode(record, "overheat_mode"),
+    power_fault: readBoolean(record, "power_fault"),
+    hardware_fault: readBoolean(record, "hardware_fault"),
+  };
+}
+
+function parseProfile(value: unknown): MinerProfile | null {
+  if (value === null) {
+    return null;
+  }
+  const record = asRecord(value);
+  return {
+    automatic_fan_speed: readBoolean(record, "automatic_fan_speed"),
+    core_voltage_mv: readFiniteNumber(record, "core_voltage_mv"),
+    frequency_mhz: readFiniteNumber(record, "frequency_mhz"),
+    minimum_fan_speed_percent: readFiniteNumber(
+      record,
+      "minimum_fan_speed_percent",
+    ),
+    overclock_enabled: readBoolean(record, "overclock_enabled"),
+    target_temperature_c: readFiniteNumber(record, "target_temperature_c"),
+  };
+}
+
+function parsePolicy(value: unknown): RecoveryPolicy {
+  const record = asRecord(value);
+  return {
+    automatic_profile_restore_enabled: readBoolean(
+      record,
+      "automatic_profile_restore_enabled",
+    ),
+    automatic_recovery_enabled: readBoolean(
+      record,
+      "automatic_recovery_enabled",
+    ),
+    consecutive_unhealthy_required: readNonNegativeInteger(
+      record,
+      "consecutive_unhealthy_required",
+    ),
+    cooldown_seconds: readNonNegativeInteger(record, "cooldown_seconds"),
+    max_attempts: readNonNegativeInteger(record, "max_attempts"),
+    overheat_policy: parseOverheatPolicy(record["overheat_policy"]),
+    post_restart_timeout_seconds: readNonNegativeInteger(
+      record,
+      "post_restart_timeout_seconds",
+    ),
+    rolling_window_seconds: readNonNegativeInteger(
+      record,
+      "rolling_window_seconds",
+    ),
+    startup_grace_seconds: readNonNegativeInteger(
+      record,
+      "startup_grace_seconds",
+    ),
+    verification_timeout_seconds: readNonNegativeInteger(
+      record,
+      "verification_timeout_seconds",
+    ),
+  };
+}
+
+function parseScan(value: unknown): Scan {
+  const record = asRecord(value);
+  return {
+    completed_at: readTimestamp(record, "completed_at"),
+    completed_hosts: readNonNegativeInteger(record, "completed_hosts"),
+    discovered_candidates: readNonNegativeInteger(record, "discovered_candidates"),
+    error: readNullableString(record, "error"),
+    network: readNullableString(record, "network"),
+    running: readBoolean(record, "running"),
+    started_at: readTimestamp(record, "started_at"),
+    total_hosts: readNonNegativeInteger(record, "total_hosts"),
+  };
+}
+
+function parseMiner(value: unknown): Miner {
+  const record = asRecord(value);
+  return {
+    miner_id: readString(record, "miner_id"),
+    name: readString(record, "name"),
+    model: readNullableString(record, "model"),
+    firmware: readNullableString(record, "firmware"),
+    endpoint: readString(record, "endpoint"),
+    enabled: readBoolean(record, "enabled"),
+    online: readBoolean(record, "online"),
+    last_success_at: readTimestamp(record, "last_success_at"),
+    telemetry: parseTelemetry(record["telemetry"]),
+    health: parseHealth(record["health"]),
+    profile: parseProfile(record["profile"]),
+    policy: parsePolicy(record["policy"]),
+  };
+}
+
+export function parseFleetListResponse(value: unknown): FleetListResponse {
+  const record = asRecord(value);
+  if (readFiniteNumber(record, "schema_version") !== 1) {
+    invalidDto();
+  }
+  return {
+    schema_version: 1,
+    miners: asArray(record["miners"]).map(parseMiner),
+    scan: parseScan(record["scan"]),
+  };
+}
+
+export function parseDiscoveryListResponse(value: unknown): DiscoveryListResponse {
+  const record = asRecord(value);
+  return {
+    candidates: asArray(record["candidates"]).map((candidate) => {
+      const item = asRecord(candidate);
+      return {
+        miner_id: readString(item, "miner_id"),
+        name: readString(item, "name"),
+        model: readNullableString(item, "model"),
+        firmware: readNullableString(item, "firmware"),
+        endpoint: readString(item, "endpoint"),
+        source: readString(item, "source"),
+        last_seen_at: readRequiredTimestamp(item, "last_seen_at"),
+      };
+    }),
+    scan: parseScan(record["scan"]),
+  };
+}
+
+export function parseIncidentsListResponse(value: unknown): IncidentsListResponse {
+  const record = asRecord(value);
+  return {
+    incidents: asArray(record["incidents"]).map((incident) => {
+      const item = asRecord(incident);
+      return {
+        cause: readString(item, "cause"),
+        detail: readString(item, "detail"),
+        id: readString(item, "id"),
+        miner_id: readString(item, "miner_id"),
+        occurred_at: readRequiredTimestamp(item, "occurred_at"),
+        outcome: readString(item, "outcome"),
+      };
+    }),
+  };
+}
+
+function parseScanStartResponse(value: unknown): ScanStartResponse {
+  return { scan: parseScan(asRecord(value)["scan"]) };
+}
+
+function parseProfileCaptureResponse(value: unknown): ProfileCaptureResponse {
+  const profile = parseProfile(asRecord(value)["profile"]);
+  if (profile === null) {
+    invalidDto();
+  }
+  return { profile };
+}
+
+function parsePolicyUpdateResponse(value: unknown): PolicyUpdateResponse {
+  return { policy: parsePolicy(asRecord(value)["policy"]) };
+}
+
+function parseLogsResponse(value: unknown): LogsResponse {
+  const record = asRecord(value);
+  return { text: readString(record, "text") };
+}
+
+function parseApprovalResponse(value: unknown): ApprovalResponse {
+  return { miner: parseMiner(asRecord(value)["miner"]) };
+}
+
+function formatNumber(value: number, maximumFractionDigits = 1): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
+}
+
+function formatTimestamp(value: string | null): string {
+  if (value === null) {
+    return "Never";
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "Unknown";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(timestamp);
+}
+
+function formatRelativeTime(value: string | null): string {
+  if (value === null) {
+    return "Never";
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return "Unknown";
+  }
+  const elapsedSeconds = Math.round((Date.now() - timestamp) / 1_000);
+  if (elapsedSeconds < 10) {
+    return "just now";
+  }
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s ago`;
+  }
+  const elapsedMinutes = Math.round(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  if (elapsedHours < 48) {
+    return `${elapsedHours}h ago`;
+  }
+  return `${Math.round(elapsedHours / 24)}d ago`;
+}
+
+function isStaleTimestamp(value: string | null): boolean {
+  if (value === null) {
+    return false;
+  }
+  return Date.now() - Date.parse(value) > STALE_AFTER_MS;
+}
+
+function displayMinerName(miner: Miner): string {
+  return miner.name.trim().length > 0 ? miner.name : miner.miner_id;
+}
+
+function displayMinerMetadata(
+  model: string | null,
+  firmware: string | null,
+): string {
+  const modelText = model === null || model.trim().length === 0 ? "Unknown model" : model;
+  const firmwareText =
+    firmware === null || firmware.trim().length === 0
+      ? "firmware unknown"
+      : `firmware ${firmware}`;
+  return `${modelText} / ${firmwareText}`;
+}
+
+function formatMeasurement(value: number | null, unit: string): string {
+  return value === null ? `-- ${unit}` : `${formatNumber(value)} ${unit}`;
+}
+
+function actionLabel(action: MinerAction): string {
+  switch (action) {
+    case "restart":
+      return "Restart";
+    case "pause":
+      return "Pause";
+    case "resume":
+      return "Resume";
+    case "identify":
+      return "Identify";
+  }
+}
+
+function actionConfirmation(action: MinerAction, miner: Miner): string {
+  const name = displayMinerName(miner);
+  switch (action) {
+    case "restart":
+      return `Restart ${name}? Mining will be interrupted while the device reboots.`;
+    case "pause":
+      return `Pause mining on ${name}?`;
+    case "resume":
+      return `Resume mining on ${name}?`;
+    case "identify":
+      return `Run the identify action on ${name}?`;
+  }
+}
+
+function readBoundedInteger(
+  value: FormDataEntryValue | null,
+  minimum: number,
+  maximum: number,
+): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
+function isOverheatPolicy(value: string): value is OverheatPolicy {
+  return (
+    value === "keep_safe_values" ||
+    value === "restore_after_cooldown" ||
+    value === "log_only"
+  );
+}
+
+function readPolicyForm(form: HTMLFormElement): RecoveryPolicy | null {
+  const data = new FormData(form);
+  const consecutiveUnhealthyRequired = readBoundedInteger(
+    data.get("consecutive_unhealthy_required"),
+    1,
+    20,
+  );
+  const cooldownSeconds = readBoundedInteger(
+    data.get("cooldown_seconds"),
+    0,
+    86_400,
+  );
+  const maxAttempts = readBoundedInteger(data.get("max_attempts"), 1, 20);
+  const postRestartTimeoutSeconds = readBoundedInteger(
+    data.get("post_restart_timeout_seconds"),
+    30,
+    3_600,
+  );
+  const rollingWindowSeconds = readBoundedInteger(
+    data.get("rolling_window_seconds"),
+    60,
+    604_800,
+  );
+  const startupGraceSeconds = readBoundedInteger(
+    data.get("startup_grace_seconds"),
+    0,
+    3_600,
+  );
+  const verificationTimeoutSeconds = readBoundedInteger(
+    data.get("verification_timeout_seconds"),
+    10,
+    3_600,
+  );
+  const overheatPolicy = data.get("overheat_policy");
+
+  if (
+    consecutiveUnhealthyRequired === null ||
+    cooldownSeconds === null ||
+    maxAttempts === null ||
+    postRestartTimeoutSeconds === null ||
+    rollingWindowSeconds === null ||
+    startupGraceSeconds === null ||
+    verificationTimeoutSeconds === null ||
+    typeof overheatPolicy !== "string" ||
+    !isOverheatPolicy(overheatPolicy)
+  ) {
+    return null;
+  }
+
+  return {
+    automatic_profile_restore_enabled: data.has(
+      "automatic_profile_restore_enabled",
+    ),
+    automatic_recovery_enabled: data.has("automatic_recovery_enabled"),
+    consecutive_unhealthy_required: consecutiveUnhealthyRequired,
+    cooldown_seconds: cooldownSeconds,
+    max_attempts: maxAttempts,
+    overheat_policy: overheatPolicy,
+    post_restart_timeout_seconds: postRestartTimeoutSeconds,
+    rolling_window_seconds: rollingWindowSeconds,
+    startup_grace_seconds: startupGraceSeconds,
+    verification_timeout_seconds: verificationTimeoutSeconds,
+  };
+}
 
 export class BitaxeFleetPanel extends LitElement {
-  static styles = css`
+  public static override properties = {
+    hass: { attribute: false },
+  };
+
+  public declare hass: HomeAssistant | undefined;
+
+  private fleet: FleetListResponse | null = null;
+  private discovery: DiscoveryListResponse | null = null;
+  private incidents: IncidentsListResponse | null = null;
+  private scan: Scan | null = null;
+  private feedback: Feedback | null = null;
+  private loadedAt: number | null = null;
+  private loading = false;
+  private loadFailed = false;
+  private logError = false;
+  private logPending = false;
+  private logs: string | null = null;
+  private scanNetwork = "";
+  private scanPending = false;
+  private selectedMinerId: string | null = null;
+  private pendingCandidateIds = new Set<string>();
+  private pendingMinerIds = new Set<string>();
+  private initialLoadStarted = false;
+  private refreshPromise: Promise<void> | undefined;
+  private scanPollTimer: number | undefined;
+  private staleClock: number | undefined;
+
+  public static styles = css`
     :host {
+      --fleet-border: var(--divider-color, rgba(127, 127, 127, 0.32));
+      --fleet-canvas: var(--primary-background-color, #f5f7f8);
+      --fleet-muted: var(--secondary-text-color, #65717b);
+      --fleet-surface: var(--card-background-color, #ffffff);
+      --fleet-accent: var(--primary-color, #0b6e69);
+      --fleet-danger: var(--error-color, #c62828);
+      --fleet-warning: var(--warning-color, #b26a00);
+      --fleet-success: #25734d;
+      color: var(--primary-text-color, #17212b);
       display: block;
-      color: var(--primary-text-color);
-      font-family: var(--primary-font-family);
+      font-family: var(--primary-font-family, system-ui, sans-serif);
+      min-block-size: 100%;
+    }
+
+    * {
+      box-sizing: border-box;
     }
 
     main {
-      border-inline-start: 4px solid var(--warning-color);
-      margin: 1rem;
-      max-inline-size: 42rem;
-      padding: 1rem 1.25rem;
+      margin: 0 auto;
+      max-inline-size: 96rem;
+      padding: clamp(1rem, 2.5vw, 2rem);
     }
 
-    h1 {
-      font-size: 1.25rem;
+    h1,
+    h2,
+    h3,
+    p {
       margin: 0;
     }
 
-    p {
-      color: var(--secondary-text-color);
-      margin-block: 0.5rem 0;
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.4rem;
+      color: inherit;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 650;
+      min-block-size: 2.15rem;
+      padding: 0.38rem 0.68rem;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--fleet-accent);
+      color: var(--fleet-accent);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    summary:focus-visible {
+      outline: 2px solid var(--fleet-accent);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .page-header {
+      align-items: flex-start;
+      border-block-end: 1px solid var(--fleet-border);
+      display: flex;
+      gap: 1.25rem;
+      justify-content: space-between;
+      margin-block-end: 1.25rem;
+      padding-block-end: 1.1rem;
+    }
+
+    .eyebrow {
+      color: var(--fleet-accent);
+      font-size: 0.7rem;
+      font-weight: 750;
+      letter-spacing: 0.12em;
+      margin-block-end: 0.35rem;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+    }
+
+    h2 {
+      font-size: 1rem;
+      letter-spacing: -0.01em;
+    }
+
+    .subhead {
+      color: var(--fleet-muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+      margin-block-start: 0.45rem;
+      max-inline-size: 46rem;
+    }
+
+    .header-actions {
+      align-items: flex-end;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      white-space: nowrap;
+    }
+
+    .admin-badge {
+      background: color-mix(in srgb, var(--fleet-warning) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--fleet-warning) 46%, transparent);
+      border-radius: 99rem;
+      color: var(--fleet-warning);
+      font-size: 0.68rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      padding: 0.28rem 0.55rem;
+      text-transform: uppercase;
+    }
+
+    .primary-button {
+      background: var(--fleet-accent);
+      border-color: var(--fleet-accent);
+      color: var(--text-primary-color, #ffffff);
+    }
+
+    .primary-button:hover:not(:disabled) {
+      color: var(--text-primary-color, #ffffff);
+      filter: brightness(1.08);
+    }
+
+    .notice,
+    .state,
+    .empty-state {
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.5rem;
+      font-size: 0.88rem;
+      line-height: 1.45;
+      margin-block-end: 1rem;
+      padding: 0.75rem 0.9rem;
+    }
+
+    .notice {
+      align-items: center;
+      display: flex;
+      gap: 0.55rem;
+      justify-content: space-between;
+    }
+
+    .notice.success {
+      border-inline-start: 4px solid var(--fleet-success);
+    }
+
+    .notice.error,
+    .state.error {
+      border-inline-start: 4px solid var(--fleet-danger);
+    }
+
+    .notice.warning {
+      border-inline-start: 4px solid var(--fleet-warning);
+    }
+
+    .state,
+    .empty-state {
+      color: var(--fleet-muted);
+    }
+
+    .state button {
+      margin-block-start: 0.55rem;
+    }
+
+    .section {
+      background: var(--fleet-surface);
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.65rem;
+      margin-block: 1rem;
+      overflow: hidden;
+    }
+
+    .section-header {
+      align-items: baseline;
+      display: flex;
+      gap: 1rem;
+      justify-content: space-between;
+      padding: 1rem 1rem 0.8rem;
+    }
+
+    .section-description,
+    .count,
+    .muted {
+      color: var(--fleet-muted);
+      font-size: 0.8rem;
+    }
+
+    .section-description {
+      line-height: 1.4;
+      margin-block-start: 0.25rem;
+    }
+
+    .count {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .scan-layout {
+      border-block-start: 1px solid var(--fleet-border);
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: minmax(16rem, 0.85fr) minmax(18rem, 1.15fr);
+      padding: 1rem;
+    }
+
+    .scan-form {
+      align-items: end;
+      display: grid;
+      gap: 0.65rem;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    label {
+      color: var(--fleet-muted);
+      display: grid;
+      font-size: 0.75rem;
+      font-weight: 650;
+      gap: 0.3rem;
+      letter-spacing: 0.015em;
+    }
+
+    input,
+    select {
+      background: var(--fleet-canvas);
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.35rem;
+      color: var(--primary-text-color, #17212b);
+      min-block-size: 2.2rem;
+      padding: 0.35rem 0.5rem;
+    }
+
+    .form-help {
+      color: var(--fleet-muted);
+      font-size: 0.72rem;
+      grid-column: 1 / -1;
+      line-height: 1.35;
+    }
+
+    .scan-progress {
+      border-inline-start: 2px solid var(--fleet-border);
+      display: grid;
+      gap: 0.5rem;
+      padding-inline-start: 1rem;
+    }
+
+    .scan-progress strong {
+      font-size: 0.88rem;
+    }
+
+    progress {
+      accent-color: var(--fleet-accent);
+      block-size: 0.48rem;
+      inline-size: 100%;
+    }
+
+    .scan-error {
+      color: var(--fleet-danger);
+      font-size: 0.78rem;
+    }
+
+    .table-scroll {
+      border-block-start: 1px solid var(--fleet-border);
+      overflow-x: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      inline-size: 100%;
+      min-inline-size: 70rem;
+    }
+
+    th,
+    td {
+      border-block-end: 1px solid var(--fleet-border);
+      padding: 0.8rem 0.85rem;
+      text-align: start;
+      vertical-align: top;
+    }
+
+    tr:last-child td {
+      border-block-end: 0;
+    }
+
+    th {
+      background: color-mix(in srgb, var(--fleet-canvas) 82%, transparent);
+      color: var(--fleet-muted);
+      font-size: 0.68rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    td {
+      font-size: 0.82rem;
+    }
+
+    .miner-name {
+      display: block;
+      font-size: 0.9rem;
+      line-height: 1.2;
+      margin-block-end: 0.2rem;
+    }
+
+    .miner-meta {
+      color: var(--fleet-muted);
+      display: block;
+      font-size: 0.73rem;
+      line-height: 1.35;
+    }
+
+    code {
+      color: var(--fleet-muted);
+      display: inline-block;
+      font-family: var(--code-font-family, ui-monospace, monospace);
+      font-size: 0.72rem;
+      margin-block-start: 0.35rem;
+      overflow-wrap: anywhere;
+    }
+
+    .endpoint-context {
+      color: var(--fleet-muted);
+      font-size: 0.66rem;
+      margin-inline-start: 0.25rem;
+      text-transform: uppercase;
+    }
+
+    .status-pill,
+    .health-pill,
+    .profile-pill {
+      align-items: center;
+      border: 1px solid currentColor;
+      border-radius: 99rem;
+      display: inline-flex;
+      font-size: 0.68rem;
+      font-weight: 700;
+      gap: 0.3rem;
+      line-height: 1;
+      padding: 0.28rem 0.45rem;
+      white-space: nowrap;
+    }
+
+    .status-pill::before {
+      background: currentColor;
+      border-radius: 50%;
+      content: "";
+      inline-size: 0.42rem;
+      block-size: 0.42rem;
+    }
+
+    .online,
+    .healthy,
+    .profile-ready {
+      color: var(--fleet-success);
+    }
+
+    .offline,
+    .fault {
+      color: var(--fleet-danger);
+    }
+
+    .stale,
+    .attention,
+    .profile-missing {
+      color: var(--fleet-warning);
+    }
+
+    .disabled,
+    .unknown {
+      color: var(--fleet-muted);
+    }
+
+    .status-time {
+      color: var(--fleet-muted);
+      display: block;
+      font-size: 0.72rem;
+      margin-block-start: 0.4rem;
+      white-space: nowrap;
+    }
+
+    .metric {
+      display: block;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.45;
+      white-space: nowrap;
+    }
+
+    .health-list,
+    .actions,
+    .profile-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+
+    .health-list {
+      min-inline-size: 9rem;
+    }
+
+    .profile-actions {
+      margin-block-start: 0.45rem;
+    }
+
+    .actions {
+      min-inline-size: 12rem;
+    }
+
+    .danger-button:hover:not(:disabled) {
+      border-color: var(--fleet-danger);
+      color: var(--fleet-danger);
+    }
+
+    details {
+      margin-block-start: 0.55rem;
+    }
+
+    summary {
+      color: var(--fleet-muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 650;
+      width: fit-content;
+    }
+
+    .policy-form {
+      border-block-start: 1px dashed var(--fleet-border);
+      display: grid;
+      gap: 0.65rem;
+      margin-block-start: 0.55rem;
+      padding-block-start: 0.65rem;
+    }
+
+    .policy-toggles {
+      display: grid;
+      gap: 0.45rem;
+    }
+
+    .policy-toggles label {
+      align-items: center;
+      display: flex;
+      font-size: 0.72rem;
+      gap: 0.42rem;
+    }
+
+    .policy-toggles input {
+      min-block-size: auto;
+    }
+
+    .policy-grid {
+      display: grid;
+      gap: 0.5rem;
+      grid-template-columns: repeat(2, minmax(8rem, 1fr));
+    }
+
+    .policy-grid label {
+      min-inline-size: 0;
+    }
+
+    .policy-grid input,
+    .policy-grid select {
+      inline-size: 100%;
+      min-inline-size: 0;
+    }
+
+    .candidate-table {
+      min-inline-size: 52rem;
+    }
+
+    .diagnostics {
+      border: 0;
+      background: transparent;
+      overflow: visible;
+    }
+
+    .diagnostics > .section-header {
+      padding-inline: 0;
+    }
+
+    .diagnostics-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    }
+
+    .diagnostic-card {
+      background: var(--fleet-surface);
+      border: 1px solid var(--fleet-border);
+      border-radius: 0.65rem;
+      min-inline-size: 0;
+      overflow: hidden;
+    }
+
+    .diagnostic-card header {
+      align-items: center;
+      border-block-end: 1px solid var(--fleet-border);
+      display: flex;
+      gap: 0.65rem;
+      justify-content: space-between;
+      padding: 0.85rem 0.9rem;
+    }
+
+    .log-controls {
+      align-items: center;
+      display: flex;
+      gap: 0.45rem;
+      min-inline-size: 0;
+    }
+
+    .log-controls select {
+      max-inline-size: 14rem;
+      min-inline-size: 8rem;
+    }
+
+    .log-state,
+    .incident-empty {
+      color: var(--fleet-muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      padding: 0.9rem;
+    }
+
+    pre {
+      background: color-mix(in srgb, var(--fleet-canvas) 78%, transparent);
+      color: var(--primary-text-color, #17212b);
+      font-family: var(--code-font-family, ui-monospace, monospace);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      margin: 0;
+      max-block-size: 25rem;
+      overflow: auto;
+      padding: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .incidents-table {
+      min-inline-size: 38rem;
+    }
+
+    .incident-detail {
+      color: var(--fleet-muted);
+      display: block;
+      font-size: 0.72rem;
+      margin-block-start: 0.22rem;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 780px) {
+      main {
+        padding: 1rem;
+      }
+
+      .page-header,
+      .section-header,
+      .diagnostic-card header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .header-actions {
+        align-items: flex-start;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .scan-layout,
+      .diagnostics-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .scan-progress {
+        border-block-start: 1px solid var(--fleet-border);
+        border-inline-start: 0;
+        padding-block-start: 0.9rem;
+        padding-inline-start: 0;
+      }
+
+      .log-controls {
+        inline-size: 100%;
+      }
+
+      .log-controls select {
+        flex: 1;
+        max-inline-size: none;
+      }
+    }
+
+    @media (max-width: 460px) {
+      .scan-form {
+        grid-template-columns: 1fr;
+      }
+
+      .policy-grid {
+        grid-template-columns: 1fr;
+      }
     }
   `;
 
-  render() {
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    this.staleClock = window.setInterval(() => this.requestUpdate(), STALE_CLOCK_INTERVAL_MS);
+    this.loadWhenHassAvailable();
+  }
+
+  public override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this.staleClock !== undefined) {
+      window.clearInterval(this.staleClock);
+      this.staleClock = undefined;
+    }
+    this.clearScanPoll();
+  }
+
+  protected override updated(changedProperties: PropertyValues<this>): void {
+    if (!changedProperties.has("hass")) {
+      return;
+    }
+
+    if (this.hass === undefined) {
+      this.initialLoadStarted = false;
+      this.clearScanPoll();
+      return;
+    }
+
+    this.loadWhenHassAvailable();
+  }
+
+  protected override render() {
     return html`
-      <main aria-live="polite">
-        <h1>Bitaxe Fleet</h1>
-        <p>${DEVELOPMENT_STATUS}</p>
+      <main>
+        ${this.renderHeader()} ${this.renderFeedback()} ${this.renderDataState()}
+        ${this.renderScanSection()} ${this.renderFleetSection()}
+        ${this.renderCandidatesSection()} ${this.renderDiagnosticsSection()}
       </main>
     `;
+  }
+
+  private renderHeader() {
+    return html`
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Administrator console</p>
+          <h1>Bitaxe Fleet</h1>
+          <p class="subhead">
+            Operational controls use Home Assistant's administrator-only WebSocket
+            boundary. Endpoints are shown for identification only and are never
+            fetched directly by this panel.
+          </p>
+        </div>
+        <div class="header-actions">
+          <span class="admin-badge">Admin only</span>
+          <button
+            class="primary-button"
+            ?disabled=${this.loading || this.hass === undefined}
+            @click=${this.handleRefresh}
+          >
+            ${this.loading ? "Refreshing..." : "Refresh fleet"}
+          </button>
+        </div>
+      </header>
+    `;
+  }
+
+  private renderFeedback() {
+    if (this.feedback === null) {
+      return nothing;
+    }
+    return html`
+      <div class="notice ${this.feedback.tone}" role="status">
+        <span>${this.feedback.text}</span>
+        <button @click=${this.clearFeedback}>Dismiss</button>
+      </div>
+    `;
+  }
+
+  private renderDataState() {
+    if (this.hass === undefined) {
+      return html`
+        <div class="state" role="status">
+          Waiting for the Home Assistant connection before loading fleet data.
+        </div>
+      `;
+    }
+
+    if (!this.hasLoadedData() && this.loading) {
+      return html`
+        <div class="state" role="status">
+          Loading enrolled miners, pending discovery candidates, and incident history...
+        </div>
+      `;
+    }
+
+    if (!this.hasLoadedData() && this.loadFailed) {
+      return html`
+        <div class="state error" role="alert">
+          The panel could not load data from the Bitaxe Fleet integration.
+          <br />
+          <button @click=${this.handleRefresh}>Try again</button>
+        </div>
+      `;
+    }
+
+    if (this.hasLoadedData() && this.dataIsStale()) {
+      return html`
+        <div class="notice warning" role="status">
+          <span>
+            Showing cached fleet data. Refresh it before making a time-sensitive
+            operational decision.
+          </span>
+          <button @click=${this.handleRefresh}>Refresh</button>
+        </div>
+      `;
+    }
+
+    return nothing;
+  }
+
+  private renderScanSection() {
+    const scan = this.scan;
+    const scanning = scan?.running === true;
+    return html`
+      <section class="section" aria-labelledby="scan-title">
+        <header class="section-header">
+          <div>
+            <h2 id="scan-title">Private-network discovery</h2>
+            <p class="section-description">
+              Scan a bounded private CIDR for candidates that still require an
+              administrator's approval.
+            </p>
+          </div>
+          <span class="count">${scan?.discovered_candidates ?? 0} found</span>
+        </header>
+        <div class="scan-layout">
+          <form class="scan-form" @submit=${this.handleScanSubmit}>
+            <label>
+              CIDR network
+              <input
+                aria-describedby="scan-help"
+                autocomplete="off"
+                inputmode="text"
+                name="network"
+                placeholder="192.168.1.0/24"
+                .value=${this.scanNetwork}
+                @input=${this.handleScanInput}
+              />
+            </label>
+            <button
+              class="primary-button"
+              type="submit"
+              ?disabled=${
+                this.hass === undefined || this.scanPending || scanning
+              }
+            >
+              ${this.scanPending || scanning ? "Scanning..." : "Start scan"}
+            </button>
+            <span class="form-help" id="scan-help">
+              Only private networks accepted by the integration can be scanned.
+            </span>
+          </form>
+          ${this.renderScanProgress(scan)}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderScanProgress(scan: Scan | null) {
+    if (scan === null || scan.network === null) {
+      return html`
+        <div class="scan-progress" aria-live="polite">
+          <strong>No scan is running</strong>
+          <span class="muted">Enter a private CIDR to begin discovery.</span>
+        </div>
+      `;
+    }
+
+    if (scan.running) {
+      const completed = Math.min(scan.completed_hosts, scan.total_hosts);
+      return html`
+        <div class="scan-progress" aria-live="polite">
+          <strong>Scanning ${scan.network}</strong>
+          <progress max=${Math.max(scan.total_hosts, 1)} value=${completed}></progress>
+          <span class="muted">
+            ${formatNumber(completed, 0)} of ${formatNumber(scan.total_hosts, 0)}
+            hosts checked, ${formatNumber(scan.discovered_candidates, 0)} candidates found
+          </span>
+        </div>
+      `;
+    }
+
+    return html`
+      <div class="scan-progress" aria-live="polite">
+        <strong>Last scan: ${scan.network}</strong>
+        <span class="muted">
+          ${formatNumber(scan.completed_hosts, 0)} hosts checked, completed
+          ${formatRelativeTime(scan.completed_at)}
+        </span>
+        ${
+          scan.error === null
+            ? nothing
+            : html`<span class="scan-error">Scan reported: ${scan.error}</span>`
+        }
+      </div>
+    `;
+  }
+
+  private renderFleetSection() {
+    return html`
+      <section class="section" aria-labelledby="fleet-title">
+        <header class="section-header">
+          <div>
+            <h2 id="fleet-title">Enrolled fleet</h2>
+            <p class="section-description">
+              Current coordinator state, bounded telemetry, recovery profiles, and
+              explicit miner actions.
+            </p>
+          </div>
+          <span class="count">${this.fleet?.miners.length ?? 0} miners</span>
+        </header>
+        ${this.renderFleetBody()}
+      </section>
+    `;
+  }
+
+  private renderFleetBody() {
+    if (this.fleet === null) {
+      return this.renderUnavailable("enrolled miners");
+    }
+    if (this.fleet.miners.length === 0) {
+      return html`
+        <div class="empty-state">
+          No miners are enrolled yet. Run discovery, then approve a verified candidate
+          to add it to the fleet.
+        </div>
+      `;
+    }
+    return html`
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Miner</th>
+              <th scope="col">Coordinator</th>
+              <th scope="col">Telemetry</th>
+              <th scope="col">Safety state</th>
+              <th scope="col">Profile &amp; recovery</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.fleet.miners.map((miner) => this.renderMinerRow(miner))}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  private renderMinerRow(miner: Miner) {
+    const busy = this.pendingMinerIds.has(miner.miner_id);
+    const status = this.minerStatus(miner);
+    const paused = miner.health?.mining_paused;
+    return html`
+      <tr>
+        <td>
+          <strong class="miner-name">${displayMinerName(miner)}</strong>
+          <span class="miner-meta">
+            ${displayMinerMetadata(miner.model, miner.firmware)}
+          </span>
+          <code title="Shown for identification only; the panel does not contact this endpoint directly."
+            >${miner.endpoint}</code
+          >
+          <span class="endpoint-context">admin endpoint</span>
+        </td>
+        <td>
+          <span class="status-pill ${status.tone}">${status.label}</span>
+          <span class="status-time" title=${formatTimestamp(miner.last_success_at)}>
+            Last success: ${formatRelativeTime(miner.last_success_at)}
+          </span>
+        </td>
+        <td>${this.renderTelemetry(miner.telemetry)}</td>
+        <td>${this.renderHealth(miner.health)}</td>
+        <td>
+          <span
+            class="profile-pill ${
+              miner.profile === null ? "profile-missing" : "profile-ready"
+            }"
+          >
+            ${miner.profile === null ? "No saved profile" : "Profile captured"}
+          </span>
+          <div class="profile-actions">
+            <button
+              ?disabled=${busy}
+              @click=${() => void this.captureProfile(miner)}
+            >
+              Capture
+            </button>
+            <button
+              ?disabled=${busy || miner.profile === null}
+              @click=${() => void this.applyProfile(miner)}
+            >
+              Apply
+            </button>
+          </div>
+          ${this.renderPolicyEditor(miner, busy)}
+        </td>
+        <td>
+          <div class="actions">
+            <button
+              class="danger-button"
+              ?disabled=${busy}
+              @click=${() => void this.runMinerAction(miner, "restart")}
+            >
+              Restart
+            </button>
+            <button
+              ?disabled=${busy || paused === true}
+              @click=${() => void this.runMinerAction(miner, "pause")}
+            >
+              Pause
+            </button>
+            <button
+              ?disabled=${busy || paused === false}
+              @click=${() => void this.runMinerAction(miner, "resume")}
+            >
+              Resume
+            </button>
+            <button
+              ?disabled=${busy}
+              @click=${() => void this.runMinerAction(miner, "identify")}
+            >
+              Identify
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  private renderTelemetry(telemetry: Telemetry | null) {
+    if (telemetry === null) {
+      return html`<span class="muted">Awaiting telemetry</span>`;
+    }
+    return html`
+      <span class="metric">${formatMeasurement(telemetry.hashrate_gh_s, "GH/s")}</span>
+      <span class="metric">${formatMeasurement(telemetry.power_w, "W")}</span>
+      <span class="metric">${formatMeasurement(telemetry.temperature_c, "deg C")}</span>
+    `;
+  }
+
+  private renderHealth(health: MinerHealth | null) {
+    if (health === null) {
+      return html`<span class="health-pill unknown">Unknown</span>`;
+    }
+    const states: Array<{ label: string; tone: "attention" | "fault" }> = [];
+    if (health.mining_paused === true) {
+      states.push({ label: "Mining paused", tone: "attention" });
+    }
+    if (
+      health.overheat_mode === true ||
+      (typeof health.overheat_mode === "number" && health.overheat_mode !== 0)
+    ) {
+      states.push({ label: "Overheat mode", tone: "attention" });
+    }
+    if (health.power_fault) {
+      states.push({ label: "Power fault", tone: "fault" });
+    }
+    if (health.hardware_fault) {
+      states.push({ label: "Hardware fault", tone: "fault" });
+    }
+    if (states.length === 0) {
+      if (health.mining_paused === null && health.overheat_mode === null) {
+        return html`<span class="health-pill unknown">Unknown</span>`;
+      }
+      return html`<span class="health-pill healthy">Nominal</span>`;
+    }
+    return html`
+      <div class="health-list">
+        ${states.map(
+          (state) => html`<span class="health-pill ${state.tone}">
+            ${state.label}
+          </span>`,
+        )}
+      </div>
+    `;
+  }
+
+  private renderPolicyEditor(miner: Miner, busy: boolean) {
+    const policy = miner.policy;
+    return html`
+      <details>
+        <summary>Recovery policy</summary>
+        <form
+          class="policy-form"
+          @submit=${(event: Event) => this.handlePolicySubmit(event, miner)}
+        >
+          <div class="policy-toggles">
+            <label>
+              <input
+                name="automatic_recovery_enabled"
+                type="checkbox"
+                ?checked=${policy.automatic_recovery_enabled}
+              />
+              Enable automatic recovery
+            </label>
+            <label>
+              <input
+                name="automatic_profile_restore_enabled"
+                type="checkbox"
+                ?checked=${policy.automatic_profile_restore_enabled}
+              />
+              Restore saved profile after recovery
+            </label>
+          </div>
+          <div class="policy-grid">
+            <label>
+              Startup grace (s)
+              <input
+                max="3600"
+                min="0"
+                name="startup_grace_seconds"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.startup_grace_seconds)}
+              />
+            </label>
+            <label>
+              Unhealthy checks
+              <input
+                max="20"
+                min="1"
+                name="consecutive_unhealthy_required"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.consecutive_unhealthy_required)}
+              />
+            </label>
+            <label>
+              Cooldown (s)
+              <input
+                max="86400"
+                min="0"
+                name="cooldown_seconds"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.cooldown_seconds)}
+              />
+            </label>
+            <label>
+              Maximum attempts
+              <input
+                max="20"
+                min="1"
+                name="max_attempts"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.max_attempts)}
+              />
+            </label>
+            <label>
+              Rolling window (s)
+              <input
+                max="604800"
+                min="60"
+                name="rolling_window_seconds"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.rolling_window_seconds)}
+              />
+            </label>
+            <label>
+              Restart timeout (s)
+              <input
+                max="3600"
+                min="30"
+                name="post_restart_timeout_seconds"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.post_restart_timeout_seconds)}
+              />
+            </label>
+            <label>
+              Verify timeout (s)
+              <input
+                max="3600"
+                min="10"
+                name="verification_timeout_seconds"
+                required
+                step="1"
+                type="number"
+                .value=${String(policy.verification_timeout_seconds)}
+              />
+            </label>
+            <label>
+              Overheat behavior
+              <select name="overheat_policy" .value=${policy.overheat_policy}>
+                <option value="keep_safe_values">Keep safe values</option>
+                <option value="restore_after_cooldown">Restore after cooldown</option>
+                <option value="log_only">Log only</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" ?disabled=${busy}>Save recovery policy</button>
+        </form>
+      </details>
+    `;
+  }
+
+  private renderCandidatesSection() {
+    return html`
+      <section class="section" aria-labelledby="candidates-title">
+        <header class="section-header">
+          <div>
+            <h2 id="candidates-title">Pending approval</h2>
+            <p class="section-description">
+              Candidates have passed discovery identity checks but are not enrolled
+              until an administrator approves them.
+            </p>
+          </div>
+          <span class="count">${this.discovery?.candidates.length ?? 0} pending</span>
+        </header>
+        ${this.renderCandidatesBody()}
+      </section>
+    `;
+  }
+
+  private renderCandidatesBody() {
+    if (this.discovery === null) {
+      return this.renderUnavailable("pending candidates");
+    }
+    if (this.discovery.candidates.length === 0) {
+      return html`
+        <div class="empty-state">
+          No candidates need approval. Start a private-network scan to look for
+          additional devices.
+        </div>
+      `;
+    }
+    return html`
+      <div class="table-scroll">
+        <table class="candidate-table">
+          <thead>
+            <tr>
+              <th scope="col">Candidate</th>
+              <th scope="col">Endpoint</th>
+              <th scope="col">Discovery</th>
+              <th scope="col">Approval</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.discovery.candidates.map((candidate) => {
+              const busy = this.pendingCandidateIds.has(candidate.miner_id);
+              return html`
+                <tr>
+                  <td>
+                    <strong class="miner-name">${candidate.name}</strong>
+                    <span class="miner-meta"
+                      >${displayMinerMetadata(candidate.model, candidate.firmware)}</span
+                    >
+                  </td>
+                  <td>
+                    <code>${candidate.endpoint}</code>
+                    <span class="endpoint-context">admin endpoint</span>
+                  </td>
+                  <td>
+                    <span class="metric">${candidate.source}</span>
+                    <span
+                      class="miner-meta"
+                      title=${formatTimestamp(candidate.last_seen_at)}
+                    >
+                      Seen ${formatRelativeTime(candidate.last_seen_at)}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="actions">
+                      <button
+                        class="primary-button"
+                        ?disabled=${busy}
+                        @click=${() => void this.approveCandidate(candidate)}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        class="danger-button"
+                        ?disabled=${busy}
+                        @click=${() => void this.rejectCandidate(candidate)}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            })}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  private renderDiagnosticsSection() {
+    return html`
+      <section class="section diagnostics" aria-labelledby="diagnostics-title">
+        <header class="section-header">
+          <div>
+            <h2 id="diagnostics-title">Diagnostics</h2>
+            <p class="section-description">
+              Redacted firmware logs and bounded incident summaries are available to
+              administrators here.
+            </p>
+          </div>
+        </header>
+        <div class="diagnostics-grid">
+          ${this.renderLogsCard()} ${this.renderIncidentsCard()}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderLogsCard() {
+    const miners = this.fleet?.miners ?? [];
+    return html`
+      <article class="diagnostic-card" aria-labelledby="logs-title">
+        <header>
+          <h3 id="logs-title">Miner logs</h3>
+          <div class="log-controls">
+            <select
+              aria-label="Miner for logs"
+              .value=${this.selectedMinerId ?? ""}
+              ?disabled=${miners.length === 0}
+              @change=${this.handleSelectedMinerChange}
+            >
+              <option value="">Select miner</option>
+              ${miners.map(
+                (miner) => html`
+                  <option value=${miner.miner_id}>${displayMinerName(miner)}</option>
+                `,
+              )}
+            </select>
+            <button
+              ?disabled=${
+                this.selectedMinerId === null || this.logPending || miners.length === 0
+              }
+              @click=${this.handleLoadLogs}
+            >
+              ${this.logPending ? "Loading..." : "Load logs"}
+            </button>
+          </div>
+        </header>
+        ${this.renderLogsBody()}
+      </article>
+    `;
+  }
+
+  private renderLogsBody() {
+    if (this.logPending) {
+      return html`<p class="log-state" role="status">Loading redacted miner logs...</p>`;
+    }
+    if (this.logError) {
+      return html`
+        <p class="log-state" role="alert">
+          Logs could not be loaded for the selected miner. Try again after refreshing
+          the fleet.
+        </p>
+      `;
+    }
+    if (this.logs === null) {
+      return html`
+        <p class="log-state">Select an enrolled miner, then request its redacted logs.</p>
+      `;
+    }
+    if (this.logs.length === 0) {
+      return html`<p class="log-state">The miner returned no log lines.</p>`;
+    }
+    return html`<pre aria-label="Redacted miner logs">${this.logs}</pre>`;
+  }
+
+  private renderIncidentsCard() {
+    return html`
+      <article class="diagnostic-card" aria-labelledby="incidents-title">
+        <header>
+          <h3 id="incidents-title">Recent incidents</h3>
+          <span class="count">${this.incidents?.incidents.length ?? 0} recorded</span>
+        </header>
+        ${this.renderIncidentsBody()}
+      </article>
+    `;
+  }
+
+  private renderIncidentsBody() {
+    if (this.incidents === null) {
+      if (this.hass === undefined) {
+        return html`
+          <p class="incident-empty" role="status">
+            Waiting for the Home Assistant connection before loading incidents.
+          </p>
+        `;
+      }
+      if (this.loading) {
+        return html`<p class="incident-empty" role="status">Loading incident history...</p>`;
+      }
+      return html`
+        <p class="incident-empty" role="alert">
+          Incident history is unavailable until the panel can refresh it.
+        </p>
+      `;
+    }
+    if (this.incidents.incidents.length === 0) {
+      return html`<p class="incident-empty">No incidents have been recorded.</p>`;
+    }
+    return html`
+      <div class="table-scroll">
+        <table class="incidents-table">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Miner</th>
+              <th scope="col">Incident</th>
+              <th scope="col">Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.incidents.incidents.map(
+              (incident) => html`
+                <tr>
+                  <td title=${formatTimestamp(incident.occurred_at)}>
+                    ${formatRelativeTime(incident.occurred_at)}
+                  </td>
+                  <td><code>${incident.miner_id}</code></td>
+                  <td>
+                    <strong>${incident.cause}</strong>
+                    <span class="incident-detail">${incident.detail}</span>
+                  </td>
+                  <td>${incident.outcome}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  private renderUnavailable(subject: string) {
+    if (this.hass === undefined) {
+      return html`
+        <div class="state" role="status">
+          Waiting for the Home Assistant connection before loading ${subject}.
+        </div>
+      `;
+    }
+    if (this.loading) {
+      return html`<div class="state" role="status">Loading ${subject}...</div>`;
+    }
+    return html`
+      <div class="state error" role="alert">
+        ${subject} are unavailable because their WebSocket response could not be
+        validated.
+      </div>
+    `;
+  }
+
+  private minerStatus(miner: Miner): {
+    label: string;
+    tone: "disabled" | "offline" | "online" | "stale";
+  } {
+    if (!miner.enabled) {
+      return { label: "Disabled", tone: "disabled" };
+    }
+    if (!miner.online) {
+      return { label: "Offline", tone: "offline" };
+    }
+    if (isStaleTimestamp(miner.last_success_at)) {
+      return { label: "Stale", tone: "stale" };
+    }
+    return { label: "Online", tone: "online" };
+  }
+
+  private hasLoadedData(): boolean {
+    return this.fleet !== null || this.discovery !== null || this.incidents !== null;
+  }
+
+  private dataIsStale(): boolean {
+    return (
+      this.loadFailed ||
+      (this.loadedAt !== null && Date.now() - this.loadedAt > STALE_AFTER_MS)
+    );
+  }
+
+  private readonly handleRefresh = (): void => {
+    void this.refresh();
+  };
+
+  private readonly clearFeedback = (): void => {
+    this.feedback = null;
+    this.requestUpdate();
+  };
+
+  private readonly handleScanInput = (event: Event): void => {
+    if (event.target instanceof HTMLInputElement) {
+      this.scanNetwork = event.target.value;
+    }
+  };
+
+  private readonly handleScanSubmit = (event: Event): void => {
+    event.preventDefault();
+    void this.startScan();
+  };
+
+  private readonly handleSelectedMinerChange = (event: Event): void => {
+    if (!(event.target instanceof HTMLSelectElement)) {
+      return;
+    }
+    this.selectedMinerId = event.target.value || null;
+    this.logs = null;
+    this.logError = false;
+    this.requestUpdate();
+  };
+
+  private readonly handleLoadLogs = (): void => {
+    void this.loadLogs();
+  };
+
+  private loadWhenHassAvailable(): void {
+    if (this.hass === undefined || this.initialLoadStarted) {
+      return;
+    }
+    this.initialLoadStarted = true;
+    void this.refresh();
+  }
+
+  private refresh(): Promise<void> {
+    const hass = this.hass;
+    if (hass === undefined) {
+      return Promise.resolve();
+    }
+    if (this.refreshPromise !== undefined) {
+      return this.refreshPromise;
+    }
+
+    const request = this.loadDashboard(hass);
+    this.refreshPromise = request;
+    void request.then(
+      () => this.clearRefresh(request),
+      () => this.clearRefresh(request),
+    );
+    return request;
+  }
+
+  private clearRefresh(request: Promise<void>): void {
+    if (this.refreshPromise === request) {
+      this.refreshPromise = undefined;
+    }
+  }
+
+  private async loadDashboard(hass: HomeAssistant): Promise<void> {
+    this.loading = true;
+    this.loadFailed = false;
+    this.requestUpdate();
+
+    const [fleetResult, discoveryResult, incidentsResult] = await Promise.allSettled([
+      this.requestFleet(hass),
+      this.requestDiscovery(hass),
+      this.requestIncidents(hass),
+    ]);
+
+    if (this.hass === undefined) {
+      this.loading = false;
+      this.requestUpdate();
+      return;
+    }
+
+    let receivedData = false;
+    let failed = false;
+
+    if (fleetResult.status === "fulfilled") {
+      this.fleet = fleetResult.value;
+      this.scan = fleetResult.value.scan;
+      receivedData = true;
+    } else {
+      failed = true;
+    }
+
+    if (discoveryResult.status === "fulfilled") {
+      this.discovery = discoveryResult.value;
+      this.scan = discoveryResult.value.scan;
+      receivedData = true;
+    } else {
+      failed = true;
+    }
+
+    if (incidentsResult.status === "fulfilled") {
+      this.incidents = incidentsResult.value;
+      receivedData = true;
+    } else {
+      failed = true;
+    }
+
+    if (receivedData) {
+      this.loadedAt = Date.now();
+    }
+    if (
+      this.scan !== null &&
+      this.scan.network !== null &&
+      this.scanNetwork.length === 0
+    ) {
+      this.scanNetwork = this.scan.network;
+    }
+
+    this.loading = false;
+    this.loadFailed = failed;
+    this.reconcileSelectedMiner();
+    this.updateScanPolling();
+    this.requestUpdate();
+  }
+
+  private async requestFleet(hass: HomeAssistant): Promise<FleetListResponse> {
+    const response = await hass.callWS({ type: "bitaxe_fleet/fleet/list" });
+    return parseFleetListResponse(response);
+  }
+
+  private async requestDiscovery(
+    hass: HomeAssistant,
+  ): Promise<DiscoveryListResponse> {
+    const response = await hass.callWS({ type: "bitaxe_fleet/discovery/list" });
+    return parseDiscoveryListResponse(response);
+  }
+
+  private async requestIncidents(
+    hass: HomeAssistant,
+  ): Promise<IncidentsListResponse> {
+    const response = await hass.callWS({ type: "bitaxe_fleet/incidents/list" });
+    return parseIncidentsListResponse(response);
+  }
+
+  private reconcileSelectedMiner(): void {
+    if (this.fleet === null) {
+      this.selectedMinerId = null;
+      return;
+    }
+    if (
+      this.selectedMinerId !== null &&
+      this.fleet.miners.some((miner) => miner.miner_id === this.selectedMinerId)
+    ) {
+      return;
+    }
+    this.selectedMinerId = this.fleet.miners[0]?.miner_id ?? null;
+  }
+
+  private async startScan(): Promise<void> {
+    const network = this.scanNetwork.trim();
+    if (network.length === 0) {
+      this.feedback = {
+        tone: "error",
+        text: "Enter a private CIDR before starting discovery.",
+      };
+      this.requestUpdate();
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined || this.scanPending || this.scan?.running === true) {
+      return;
+    }
+
+    this.scanPending = true;
+    this.feedback = null;
+    this.requestUpdate();
+    try {
+      const response = parseScanStartResponse(
+        await hass.callWS({
+          type: "bitaxe_fleet/discovery/scan",
+          network,
+        }),
+      );
+      if (this.hass === undefined) {
+        return;
+      }
+      this.scan = response.scan;
+      this.scanNetwork = network;
+      this.feedback = {
+        tone: "success",
+        text: "Discovery scan started. Progress will update while it is running.",
+      };
+      this.updateScanPolling();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The discovery scan could not be started. Check the private CIDR and try again.",
+        };
+      }
+    } finally {
+      this.scanPending = false;
+      this.requestUpdate();
+    }
+  }
+
+  private updateScanPolling(): void {
+    if (this.scan === null || !this.scan.running || !this.isConnected) {
+      this.clearScanPoll();
+      return;
+    }
+    if (this.scanPollTimer !== undefined) {
+      return;
+    }
+    this.scanPollTimer = window.setTimeout(() => {
+      this.scanPollTimer = undefined;
+      void this.refresh().then(
+        () => this.updateScanPolling(),
+        () => this.updateScanPolling(),
+      );
+    }, SCAN_POLL_INTERVAL_MS);
+  }
+
+  private clearScanPoll(): void {
+    if (this.scanPollTimer !== undefined) {
+      window.clearTimeout(this.scanPollTimer);
+      this.scanPollTimer = undefined;
+    }
+  }
+
+  private async runMinerAction(miner: Miner, action: MinerAction): Promise<void> {
+    if (this.pendingMinerIds.has(miner.miner_id)) {
+      return;
+    }
+    if (!window.confirm(actionConfirmation(action, miner))) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setMinerPending(miner.miner_id, true);
+    try {
+      await hass.callWS({
+        type: "bitaxe_fleet/miner/action",
+        miner_id: miner.miner_id,
+        action,
+      });
+      if (this.hass === undefined) {
+        return;
+      }
+      this.feedback = {
+        tone: "success",
+        text: `${actionLabel(action)} was requested for ${displayMinerName(miner)}.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: `The ${actionLabel(action).toLowerCase()} request could not be completed.`,
+        };
+      }
+    } finally {
+      this.setMinerPending(miner.miner_id, false);
+    }
+  }
+
+  private async captureProfile(miner: Miner): Promise<void> {
+    if (this.pendingMinerIds.has(miner.miner_id)) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setMinerPending(miner.miner_id, true);
+    try {
+      const response = parseProfileCaptureResponse(
+        await hass.callWS({
+          type: "bitaxe_fleet/profile/capture",
+          miner_id: miner.miner_id,
+        }),
+      );
+      if (this.hass === undefined) {
+        return;
+      }
+      this.replaceMiner(miner.miner_id, (current) => ({
+        ...current,
+        profile: response.profile,
+      }));
+      this.feedback = {
+        tone: "success",
+        text: `Captured a recovery profile for ${displayMinerName(miner)}.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The recovery profile could not be captured.",
+        };
+      }
+    } finally {
+      this.setMinerPending(miner.miner_id, false);
+    }
+  }
+
+  private async applyProfile(miner: Miner): Promise<void> {
+    if (miner.profile === null || this.pendingMinerIds.has(miner.miner_id)) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Apply the saved recovery profile to ${displayMinerName(miner)}? This changes device settings.`,
+      )
+    ) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setMinerPending(miner.miner_id, true);
+    try {
+      await hass.callWS({
+        type: "bitaxe_fleet/profile/apply",
+        miner_id: miner.miner_id,
+      });
+      if (this.hass === undefined) {
+        return;
+      }
+      this.feedback = {
+        tone: "success",
+        text: `Applied the saved recovery profile to ${displayMinerName(miner)}.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The saved recovery profile could not be applied.",
+        };
+      }
+    } finally {
+      this.setMinerPending(miner.miner_id, false);
+    }
+  }
+
+  private handlePolicySubmit(event: Event, miner: Miner): void {
+    event.preventDefault();
+    if (!(event.currentTarget instanceof HTMLFormElement)) {
+      return;
+    }
+    const policy = readPolicyForm(event.currentTarget);
+    if (policy === null) {
+      this.feedback = {
+        tone: "error",
+        text: "Enter valid recovery policy values before saving.",
+      };
+      this.requestUpdate();
+      return;
+    }
+    void this.savePolicy(miner, policy);
+  }
+
+  private async savePolicy(miner: Miner, policy: RecoveryPolicy): Promise<void> {
+    if (this.pendingMinerIds.has(miner.miner_id)) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Save the recovery policy for ${displayMinerName(miner)}?`,
+      )
+    ) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setMinerPending(miner.miner_id, true);
+    try {
+      const response = parsePolicyUpdateResponse(
+        await hass.callWS({
+          type: "bitaxe_fleet/policy/update",
+          miner_id: miner.miner_id,
+          policy,
+        }),
+      );
+      if (this.hass === undefined) {
+        return;
+      }
+      this.replaceMiner(miner.miner_id, (current) => ({
+        ...current,
+        policy: response.policy,
+      }));
+      this.feedback = {
+        tone: "success",
+        text: `Updated the recovery policy for ${displayMinerName(miner)}.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The recovery policy could not be updated.",
+        };
+      }
+    } finally {
+      this.setMinerPending(miner.miner_id, false);
+    }
+  }
+
+  private async approveCandidate(candidate: DiscoveryCandidate): Promise<void> {
+    if (this.pendingCandidateIds.has(candidate.miner_id)) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Approve ${candidate.name || candidate.miner_id} and add it to the fleet?`,
+      )
+    ) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setCandidatePending(candidate.miner_id, true);
+    try {
+      const response = parseApprovalResponse(
+        await hass.callWS({
+          type: "bitaxe_fleet/discovery/approve",
+          miner_id: candidate.miner_id,
+        }),
+      );
+      if (this.hass === undefined) {
+        return;
+      }
+      if (this.fleet !== null) {
+        this.fleet = {
+          ...this.fleet,
+          miners: [...this.fleet.miners, response.miner],
+        };
+      }
+      this.removeCandidate(candidate.miner_id);
+      this.feedback = {
+        tone: "success",
+        text: `${candidate.name || candidate.miner_id} was approved and enrolled.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The candidate could not be approved.",
+        };
+      }
+    } finally {
+      this.setCandidatePending(candidate.miner_id, false);
+    }
+  }
+
+  private async rejectCandidate(candidate: DiscoveryCandidate): Promise<void> {
+    if (this.pendingCandidateIds.has(candidate.miner_id)) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Reject ${candidate.name || candidate.miner_id}? This removes the pending candidate.`,
+      )
+    ) {
+      return;
+    }
+    const hass = this.hass;
+    if (hass === undefined) {
+      return;
+    }
+
+    this.setCandidatePending(candidate.miner_id, true);
+    try {
+      await hass.callWS({
+        type: "bitaxe_fleet/discovery/reject",
+        miner_id: candidate.miner_id,
+      });
+      if (this.hass === undefined) {
+        return;
+      }
+      this.removeCandidate(candidate.miner_id);
+      this.feedback = {
+        tone: "success",
+        text: `${candidate.name || candidate.miner_id} was rejected.`,
+      };
+      await this.refresh();
+    } catch {
+      if (this.hass !== undefined) {
+        this.feedback = {
+          tone: "error",
+          text: "The candidate could not be rejected.",
+        };
+      }
+    } finally {
+      this.setCandidatePending(candidate.miner_id, false);
+    }
+  }
+
+  private async loadLogs(): Promise<void> {
+    const minerId = this.selectedMinerId;
+    const hass = this.hass;
+    if (minerId === null || hass === undefined || this.logPending) {
+      return;
+    }
+
+    this.logPending = true;
+    this.logError = false;
+    this.logs = null;
+    this.requestUpdate();
+    try {
+      const response = parseLogsResponse(
+        await hass.callWS({
+          type: "bitaxe_fleet/logs/get",
+          miner_id: minerId,
+        }),
+      );
+      if (this.hass === undefined || this.selectedMinerId !== minerId) {
+        return;
+      }
+      this.logs = response.text;
+    } catch {
+      if (this.hass !== undefined && this.selectedMinerId === minerId) {
+        this.logError = true;
+      }
+    } finally {
+      this.logPending = false;
+      this.requestUpdate();
+    }
+  }
+
+  private setMinerPending(minerId: string, pending: boolean): void {
+    const next = new Set(this.pendingMinerIds);
+    if (pending) {
+      next.add(minerId);
+    } else {
+      next.delete(minerId);
+    }
+    this.pendingMinerIds = next;
+    this.requestUpdate();
+  }
+
+  private setCandidatePending(candidateId: string, pending: boolean): void {
+    const next = new Set(this.pendingCandidateIds);
+    if (pending) {
+      next.add(candidateId);
+    } else {
+      next.delete(candidateId);
+    }
+    this.pendingCandidateIds = next;
+    this.requestUpdate();
+  }
+
+  private replaceMiner(
+    minerId: string,
+    transform: (miner: Miner) => Miner,
+  ): void {
+    if (this.fleet === null) {
+      return;
+    }
+    this.fleet = {
+      ...this.fleet,
+      miners: this.fleet.miners.map((miner) =>
+        miner.miner_id === minerId ? transform(miner) : miner,
+      ),
+    };
+    this.requestUpdate();
+  }
+
+  private removeCandidate(candidateId: string): void {
+    if (this.discovery === null) {
+      return;
+    }
+    this.discovery = {
+      ...this.discovery,
+      candidates: this.discovery.candidates.filter(
+        (candidate) => candidate.miner_id !== candidateId,
+      ),
+    };
+    this.requestUpdate();
   }
 }
 

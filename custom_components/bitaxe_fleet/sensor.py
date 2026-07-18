@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfPower, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import MinerCoordinator
@@ -49,11 +50,27 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensors for every currently enrolled miner."""
-    del hass
+
+    def _async_add_miner(coordinator: MinerCoordinator) -> None:
+        """Create sensors after discovery approval without rebuilding the fleet."""
+        async_add_entities(
+            [
+                BitaxeSensor(coordinator, description)
+                for description in SENSOR_DESCRIPTIONS
+            ]
+        )
+
     async_add_entities(
-        BitaxeSensor(coordinator, description)
-        for coordinator in entry.runtime_data.coordinators.values()
-        for description in SENSOR_DESCRIPTIONS
+        [
+            BitaxeSensor(coordinator, description)
+            for coordinator in entry.runtime_data.coordinators.values()
+            for description in SENSOR_DESCRIPTIONS
+        ]
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, entry.runtime_data.miner_added_signal, _async_add_miner
+        )
     )
 
 

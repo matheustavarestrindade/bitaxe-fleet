@@ -13,19 +13,23 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: manual onboarding milestone implemented; broader phases remain
-  incomplete.
-- Installable integration: `v0.1.1` is the current HACS development preview;
-  prepared `v0.2.0` adds manual private-IPv4 miner enrollment and monitoring.
-- Current release: `v0.1.1` development release.
-- Documentation phase: complete.
-- Next implementation phase: complete the remaining Phase 2 typed AxeOS
-  boundary before adding automatic discovery.
+- Project state: the `0.3.0` release candidate is under final validation.
+- Published release: `v0.2.0` provides manual private-IPv4 enrollment and basic
+  monitoring.
+- Candidate scope: typed AxeOS capabilities/logs/mutations, approval-based mDNS
+  and bounded scanning, profiles, controls, incidents, diagnostics, the panel,
+  and opt-in automatic responsive recovery are implemented.
+- Remaining release-readiness work: real-device validation, optional external
+  pool support, broader fleet aggregate entities, and the scenario coverage
+  explicitly retained in later phases below.
+- Documentation phase: updated to distinguish implemented behavior from the
+  remaining roadmap.
 
 ## Manual Onboarding Milestone
 
-This scoped milestone is complete and verified by the Python quality gate. It
-does not complete Phases 2 through 5 or change their unchecked tasks.
+This legacy scoped milestone remains complete and verified. The candidate now
+also completes the typed AxeOS boundary needed for discovery, controls, and
+recovery; real-device compatibility evidence remains a release-readiness task.
 
 - [x] Validate an administrator-submitted RFC 1918 IPv4 host through bounded,
   redirect-free `GET /api/system/info` requests.
@@ -36,8 +40,10 @@ does not complete Phases 2 through 5 or change their unchecked tasks.
   temperature sensors from validated snapshots.
 - [x] Add synthetic AxeOS fixtures and parser, HTTP, storage, options-flow,
   lifecycle, and entity tests.
-- [ ] Add `/api/system/asic`, logs, mutations, real-device fixtures, and formal
-  compatibility coverage in their existing Phase 2 tasks.
+- [x] Add typed `/api/system/asic`, logs, and mutation support with synthetic
+  valid, partial, and malformed compatibility fixtures.
+- [ ] Validate the supported behavior against anonymized real-device fixtures
+  and hardware before declaring firmware compatibility complete.
 
 ## Status Rules
 

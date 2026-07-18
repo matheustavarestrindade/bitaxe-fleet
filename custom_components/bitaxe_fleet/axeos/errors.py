@@ -24,6 +24,10 @@ class AxeOSHTTPError(AxeOSError):
         super().__init__(f"AxeOS {operation} returned HTTP {status}")
 
 
+class AxeOSAuthenticationError(AxeOSHTTPError):
+    """AxeOS rejected the request because the client is not authorized."""
+
+
 class AxeOSInvalidEndpointError(AxeOSError):
     """A user-provided endpoint is outside the allowed local-network scope."""
 
@@ -46,3 +50,15 @@ class AxeOSTimeoutError(AxeOSError):
     def __init__(self, operation: str) -> None:
         """Initialize a timeout failure without exposing the endpoint."""
         super().__init__(f"AxeOS {operation} timed out")
+
+
+class AxeOSUnsupportedError(AxeOSHTTPError):
+    """The contacted firmware does not implement the requested API operation."""
+
+
+class AxeOSMutationUncertainError(AxeOSError):
+    """A mutation may have reached AxeOS, so callers must read before retrying."""
+
+    def __init__(self, operation: str) -> None:
+        """Initialize an uncertain outcome without endpoint or payload details."""
+        super().__init__(f"AxeOS {operation} outcome is uncertain")

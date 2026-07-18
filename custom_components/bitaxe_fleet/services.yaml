@@ -1,0 +1,71 @@
+restart_miner:
+  name: Restart miner
+  description: Request one software restart from an enrolled Bitaxe miner.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      description: Normalized or separator-free MAC address of the enrolled miner.
+      required: true
+      selector:
+        text:
+
+pause_miner:
+  name: Pause miner
+  description: Pause mining on an enrolled Bitaxe miner.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      required: true
+      selector:
+        text:
+
+resume_miner:
+  name: Resume miner
+  description: Resume mining on an enrolled Bitaxe miner.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      required: true
+      selector:
+        text:
+
+identify_miner:
+  name: Identify miner
+  description: Temporarily enable physical identification on an enrolled miner.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      required: true
+      selector:
+        text:
+
+capture_profile:
+  name: Capture recovery profile
+  description: Read and save the six allowed recovery settings from a miner.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      required: true
+      selector:
+        text:
+
+apply_profile:
+  name: Apply recovery profile
+  description: Apply a saved six-setting profile and verify the miner read-back.
+  fields:
+    miner_id:
+      name: Miner MAC address
+      required: true
+      selector:
+        text:
+
+scan_network:
+  name: Scan private network
+  description: Start one bounded scan of an explicitly supplied private IPv4 CIDR.
+  fields:
+    network:
+      name: Private IPv4 CIDR
+      description: A private network no larger than 256 probe addresses.
+      required: true
+      selector:
+        text:
