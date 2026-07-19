@@ -656,6 +656,15 @@ describe("BitaxeFleetGraphCard", () => {
 });
 
 describe("BitaxeFleetOverviewCard", () => {
+  it("uses its own width to select the compact layout", () => {
+    const styles = BitaxeFleetOverviewCard.styles.cssText;
+
+    expect(styles).toContain("container-type: inline-size");
+    expect(styles).toContain("@container (max-width: 700px)");
+    expect(styles).toContain("@container (min-width: 701px)");
+    expect(styles).not.toContain("@media (max-width: 700px)");
+  });
+
   it("auto-registers current individual and fresh fleet performance", async () => {
     const calls: WebSocketCommand[] = [];
     const card = new BitaxeFleetOverviewCard();

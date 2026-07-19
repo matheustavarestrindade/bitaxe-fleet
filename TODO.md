@@ -13,10 +13,10 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: `v0.6.2` includes fleet aggregate entities, compact panel
+- Project state: `v0.6.3` includes fleet aggregate entities, compact panel
   formatting, session-best difficulty coverage, and auto-registered Recorder-
   backed graph and fleet performance dashboard cards.
-- Published release: `v0.6.2` provides private-IPv4 enrollment, discovery,
+- Published release: `v0.6.3` provides private-IPv4 enrollment, discovery,
   controls, recovery, expanded monitoring, Recorder-backed history, and fleet
   aggregates.
 - Current development scope: typed AxeOS capabilities/logs/mutations,

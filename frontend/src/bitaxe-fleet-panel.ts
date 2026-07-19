@@ -3921,6 +3921,7 @@ export class BitaxeFleetOverviewCard extends LitElement {
 
   public static styles = css`
     :host {
+      container-type: inline-size;
       display: block;
       min-inline-size: 0;
     }
@@ -4161,7 +4162,7 @@ export class BitaxeFleetOverviewCard extends LitElement {
       margin-block-end: 0.65rem;
     }
 
-    @media (max-width: 700px) {
+    @container (max-width: 700px) {
       .fleet-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -4192,7 +4193,7 @@ export class BitaxeFleetOverviewCard extends LitElement {
       }
     }
 
-    @media (min-width: 701px) {
+    @container (min-width: 701px) {
       .miner-metric .metric-label {
         display: none;
       }

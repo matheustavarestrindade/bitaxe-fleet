@@ -25,7 +25,7 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-19, the published `0.6.2` release provides completed manual
+As of 2026-07-19, the published `0.6.3` release provides completed manual
 onboarding, mDNS and bounded explicit scanning, approval-based discovery, typed
 AxeOS capabilities/logs/mutations, profiles, administrator controls, incidents,
 diagnostics, expanded native telemetry and health entities, Recorder-backed
