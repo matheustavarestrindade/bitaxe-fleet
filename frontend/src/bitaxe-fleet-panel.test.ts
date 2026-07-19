@@ -105,7 +105,7 @@ function fleetDto(miner = minerDto()): Record<string, unknown> {
     aggregates: fleetAggregatesDto(),
     miners: [miner],
     scan: scanDto(),
-    schema_version: 2,
+    schema_version: 1,
   };
 }
 
@@ -235,7 +235,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
   it("accepts the versioned DTO shape and rejects malformed nested values", () => {
     const fleet = parseFleetListResponse(fleetDto());
 
-    expect(fleet.schema_version).toBe(2);
+    expect(fleet.schema_version).toBe(1);
     expect(fleet.aggregates?.total_hashrate_gh_s).toBe(1_250);
     expect(fleet.aggregates?.best_session_difficulty).toBe(750_000);
     expect(fleet.miners[0]?.telemetry?.hashrate_gh_s).toBe(700);
@@ -281,8 +281,24 @@ describe("BitaxeFleetPanel DTO boundary", () => {
       "Unexpected Bitaxe Fleet response",
     );
 
+    const previousFleet = fleetDto();
+    const previousTelemetry = (
+      (previousFleet["miners"] as Record<string, unknown>[])[0]?.["telemetry"] as Record<
+        string,
+        unknown
+      >
+    );
+    delete previousTelemetry["best_session_difficulty"];
+    const previousAggregates = previousFleet["aggregates"] as Record<string, unknown>;
+    delete previousAggregates["best_session_difficulty"];
+    delete previousAggregates["best_session_difficulty_coverage"];
+    const parsedPreviousFleet = parseFleetListResponse(previousFleet);
+    expect(parsedPreviousFleet.miners[0]?.telemetry?.best_session_difficulty).toBeNull();
+    expect(parsedPreviousFleet.aggregates?.best_session_difficulty).toBeNull();
+    expect(parsedPreviousFleet.aggregates?.best_session_difficulty_coverage).toBe(0);
+
     const incompatibleFleet = fleetDto();
-    incompatibleFleet["schema_version"] = 1;
+    incompatibleFleet["schema_version"] = 2;
     expect(() => parseFleetListResponse(incompatibleFleet)).toThrow(
       "Unexpected Bitaxe Fleet response",
     );

@@ -76,7 +76,7 @@ async def websocket_fleet_list(
         msg["id"],
         {
             "aggregates": _fleet_aggregates_dto(runtime.fleet_aggregates),
-            "schema_version": 2,
+            "schema_version": 1,
             "miners": [_miner_dto(runtime, miner) for miner in runtime.registry.miners],
             "scan": _scan_dto(runtime),
         },

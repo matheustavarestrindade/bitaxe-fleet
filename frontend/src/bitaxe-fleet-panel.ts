@@ -106,7 +106,7 @@ export interface FleetAggregates {
 
 export interface FleetListResponse {
   aggregates: FleetAggregates | null;
-  schema_version: 2;
+  schema_version: 1;
   miners: Miner[];
   scan: Scan;
 }
@@ -296,6 +296,16 @@ function readNullableFiniteNumber(
   return value;
 }
 
+function readOptionalNullableFiniteNumber(
+  record: Record<string, unknown>,
+  key: string,
+): number | null {
+  if (record[key] === undefined) {
+    return null;
+  }
+  return readNullableFiniteNumber(record, key);
+}
+
 function readNullableBoolean(
   record: Record<string, unknown>,
   key: string,
@@ -330,6 +340,16 @@ function readNonNegativeInteger(
     invalidDto();
   }
   return value;
+}
+
+function readOptionalNonNegativeInteger(
+  record: Record<string, unknown>,
+  key: string,
+): number {
+  if (record[key] === undefined) {
+    return 0;
+  }
+  return readNonNegativeInteger(record, key);
 }
 
 function readNullableNonNegativeInteger(
@@ -382,7 +402,7 @@ function parseTelemetry(value: unknown): Telemetry | null {
   const record = asRecord(value);
   return {
     best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
-    best_session_difficulty: readNullableFiniteNumber(
+    best_session_difficulty: readOptionalNullableFiniteNumber(
       record,
       "best_session_difficulty",
     ),
@@ -482,11 +502,11 @@ function parseFleetAggregates(value: unknown): FleetAggregates | null {
   return {
     best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
     best_difficulty_coverage: readNonNegativeInteger(record, "best_difficulty_coverage"),
-    best_session_difficulty: readNullableFiniteNumber(
+    best_session_difficulty: readOptionalNullableFiniteNumber(
       record,
       "best_session_difficulty",
     ),
-    best_session_difficulty_coverage: readNonNegativeInteger(
+    best_session_difficulty_coverage: readOptionalNonNegativeInteger(
       record,
       "best_session_difficulty_coverage",
     ),
@@ -527,12 +547,12 @@ function parseMiner(value: unknown): Miner {
 
 export function parseFleetListResponse(value: unknown): FleetListResponse {
   const record = asRecord(value);
-  if (readFiniteNumber(record, "schema_version") !== 2) {
+  if (readFiniteNumber(record, "schema_version") !== 1) {
     invalidDto();
   }
   return {
     aggregates: parseFleetAggregates(record["aggregates"]),
-    schema_version: 2,
+    schema_version: 1,
     miners: asArray(record["miners"]).map(parseMiner),
     scan: parseScan(record["scan"]),
   };

@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-19
+
+### Fixed
+
+- Preserve compatibility between old and new Home Assistant frontend/backend
+  upgrade orders so fleet dashboards keep showing enrolled miners during an
+  update.
+
 ## [0.6.0] - 2026-07-19
 
 ### Added
