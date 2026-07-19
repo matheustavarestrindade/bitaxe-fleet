@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.bitaxe_fleet.panel import (
     _async_register_dashboard_card,
+    _module_url,
     async_register_panel,
 )
 
@@ -48,9 +49,13 @@ async def test_panel_registers_one_admin_only_static_module(tmp_path: Path) -> N
     register_when_frontend_ready = patch(
         "custom_components.bitaxe_fleet.panel.async_when_setup"
     )
+    module_url = "/bitaxe_fleet_panel/bitaxe-fleet-panel.js?v=test-release"
 
     with (
         patch("custom_components.bitaxe_fleet.panel._bundle_path", return_value=bundle),
+        patch(
+            "custom_components.bitaxe_fleet.panel._module_url", return_value=module_url
+        ),
         patch(
             "custom_components.bitaxe_fleet.panel.panel_custom.async_register_panel",
             new=register_panel,
@@ -69,9 +74,13 @@ async def test_panel_registers_one_admin_only_static_module(tmp_path: Path) -> N
     await_args = register_panel.await_args
     assert await_args is not None
     assert await_args.kwargs["require_admin"] is True
+    assert await_args.kwargs["module_url"] == module_url
     register_when_ready.assert_called_once_with(
         cast(HomeAssistant, hass), "frontend", _async_register_dashboard_card
     )
-    register_extra_js.assert_called_once_with(
-        cast(HomeAssistant, hass), "/bitaxe_fleet_panel/bitaxe-fleet-panel.js"
-    )
+    register_extra_js.assert_called_once_with(cast(HomeAssistant, hass), module_url)
+
+
+def test_panel_module_url_includes_the_manifest_version() -> None:
+    """A release change produces a new browser module URL instead of stale metadata."""
+    assert _module_url().startswith("/bitaxe_fleet_panel/bitaxe-fleet-panel.js?v=")

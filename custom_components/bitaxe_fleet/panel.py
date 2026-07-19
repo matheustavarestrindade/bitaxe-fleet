@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
@@ -42,7 +45,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         webcomponent_name=_PANEL_COMPONENT,
         sidebar_title="Bitaxe Fleet",
         sidebar_icon="mdi:server-network",
-        module_url=_STATIC_URL,
+        module_url=_module_url(),
         require_admin=True,
     )
     async_when_setup(hass, frontend.DOMAIN, _async_register_dashboard_card)
@@ -51,7 +54,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
 
 async def _async_register_dashboard_card(hass: HomeAssistant, _: str) -> None:
     """Load the shared panel module once the Home Assistant frontend is ready."""
-    frontend.add_extra_js_url(hass, _STATIC_URL)
+    frontend.add_extra_js_url(hass, _module_url())
 
 
 def _bundle_path() -> Path:
@@ -61,3 +64,15 @@ def _bundle_path() -> Path:
     if packaged.is_file():
         return packaged
     return integration_directory.parents[1] / "frontend" / "dist" / _STATIC_FILENAME
+
+
+@lru_cache(maxsize=1)
+def _module_url() -> str:
+    """Return a release-specific module URL while keeping the static route stable."""
+    manifest = json.loads(
+        (Path(__file__).parent / "manifest.json").read_text(encoding="utf-8")
+    )
+    version = manifest.get("version")
+    if not isinstance(version, str):
+        raise RuntimeError("Bitaxe Fleet manifest version is unavailable")
+    return f"{_STATIC_URL}?v={quote(version, safe='')}"
