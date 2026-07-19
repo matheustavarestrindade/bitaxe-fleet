@@ -119,6 +119,8 @@ boundary as the fleet panel, so it must be viewed by an administrator.
 Add **Bitaxe Fleet performance** from the dashboard card picker to see the
 current fleet and every enrolled miner without configuring entity IDs:
 
+![Fleet performance dashboard card](screenshots/Fleet%20performance%20card.png)
+
 ```yaml
 type: custom:bitaxe-fleet-overview-card
 name: Fleet performance
@@ -131,7 +133,9 @@ overall and session difficulty, with explicit reporting coverage. Disabled and
 non-fresh miners stay visible in the individual list but do not contribute to
 the fleet summary. The card refreshes its cached data every 30 seconds; miners
 are polled by the integration every 60 seconds, so the card never causes extra
-requests to a miner.
+requests to a miner. It adapts to its dashboard column width: normal Home
+Assistant cards use the compact per-miner metric layout, while wider cards show
+the table headings.
 
 After installing or updating Bitaxe Fleet, reload the Home Assistant browser
 page before opening the card picker so Home Assistant loads the bundled card
