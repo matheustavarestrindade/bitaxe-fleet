@@ -24,6 +24,7 @@ def _snapshot(
     power_w: float | None = 18.0,
     uptime_seconds: int | None = 3_600,
     best_difficulty: float | None = 1_000_000.0,
+    best_session_difficulty: float | None = 500_000.0,
     mining_paused: bool | None = False,
     overheat_mode: int | None = 0,
     power_fault: str | None = None,
@@ -44,6 +45,7 @@ def _snapshot(
             temperature_c=54.0,
             uptime_seconds=uptime_seconds,
             best_difficulty=best_difficulty,
+            best_session_difficulty=best_session_difficulty,
         ),
         observed_at=datetime.now(UTC),
         health=MinerHealth(
@@ -64,12 +66,14 @@ def test_fleet_aggregates_preserve_partial_coverage() -> None:
                 power_w=18.0,
                 uptime_seconds=3_600,
                 best_difficulty=1_250_000.0,
+                best_session_difficulty=750_000.0,
             ),
             _snapshot(
                 hashrate_gh_s=None,
                 power_w=20.0,
                 uptime_seconds=None,
                 best_difficulty=2_500_000.0,
+                best_session_difficulty=900_000.0,
                 overheat_mode=1,
             ),
         ),
@@ -83,10 +87,12 @@ def test_fleet_aggregates_preserve_partial_coverage() -> None:
     assert aggregates.efficiency_j_th == pytest.approx(63.333333333333336)
     assert aggregates.total_uptime_seconds == 3_600
     assert aggregates.best_difficulty == 2_500_000.0
+    assert aggregates.best_session_difficulty == 900_000.0
     assert aggregates.hashrate_coverage == 1
     assert aggregates.power_coverage == 2
     assert aggregates.uptime_coverage == 1
     assert aggregates.best_difficulty_coverage == 2
+    assert aggregates.best_session_difficulty_coverage == 2
     assert aggregates.unhealthy_miners == 1
     assert aggregates.unhealthy_coverage == 2
     assert aggregates.overheating_miners == 1
@@ -103,6 +109,7 @@ def test_fleet_aggregates_keep_missing_metrics_unknown() -> None:
                 power_w=None,
                 uptime_seconds=None,
                 best_difficulty=None,
+                best_session_difficulty=None,
                 mining_paused=None,
                 overheat_mode=None,
             ),
@@ -116,6 +123,8 @@ def test_fleet_aggregates_keep_missing_metrics_unknown() -> None:
     assert aggregates.efficiency_j_th is None
     assert aggregates.total_uptime_seconds is None
     assert aggregates.best_difficulty is None
+    assert aggregates.best_session_difficulty is None
+    assert aggregates.best_session_difficulty_coverage == 0
     assert aggregates.unhealthy_miners is None
     assert aggregates.overheating_miners is None
 

@@ -3,7 +3,9 @@ import type { PropertyValues } from "lit";
 
 export const PANEL_TAG = "bitaxe-fleet-panel";
 export const CARD_TAG = "bitaxe-fleet-graph-card";
+export const OVERVIEW_CARD_TAG = "bitaxe-fleet-overview-card";
 
+const CARD_REFRESH_INTERVAL_MS = 30_000;
 const STALE_AFTER_MS = 90_000;
 const STALE_CLOCK_INTERVAL_MS = 15_000;
 const SCAN_POLL_INTERVAL_MS = 2_500;
@@ -20,6 +22,7 @@ export interface HomeAssistant {
 
 export interface Telemetry {
   best_difficulty: number | null;
+  best_session_difficulty: number | null;
   hashrate_gh_s: number | null;
   power_w: number | null;
   temperature_c: number | null;
@@ -83,6 +86,8 @@ export interface Scan {
 export interface FleetAggregates {
   best_difficulty: number | null;
   best_difficulty_coverage: number;
+  best_session_difficulty: number | null;
+  best_session_difficulty_coverage: number;
   efficiency_j_th: number | null;
   enabled_miners: number;
   hashrate_coverage: number;
@@ -101,7 +106,7 @@ export interface FleetAggregates {
 
 export interface FleetListResponse {
   aggregates: FleetAggregates | null;
-  schema_version: 1;
+  schema_version: 2;
   miners: Miner[];
   scan: Scan;
 }
@@ -165,6 +170,10 @@ export interface FleetTelemetryHistory {
 
 export interface BitaxeFleetGraphCardConfig {
   metric: FleetHistoryMetric;
+  name?: string;
+}
+
+export interface BitaxeFleetOverviewCardConfig {
   name?: string;
 }
 
@@ -373,6 +382,10 @@ function parseTelemetry(value: unknown): Telemetry | null {
   const record = asRecord(value);
   return {
     best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
+    best_session_difficulty: readNullableFiniteNumber(
+      record,
+      "best_session_difficulty",
+    ),
     hashrate_gh_s: readNullableFiniteNumber(record, "hashrate_gh_s"),
     power_w: readNullableFiniteNumber(record, "power_w"),
     temperature_c: readNullableFiniteNumber(record, "temperature_c"),
@@ -469,6 +482,14 @@ function parseFleetAggregates(value: unknown): FleetAggregates | null {
   return {
     best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
     best_difficulty_coverage: readNonNegativeInteger(record, "best_difficulty_coverage"),
+    best_session_difficulty: readNullableFiniteNumber(
+      record,
+      "best_session_difficulty",
+    ),
+    best_session_difficulty_coverage: readNonNegativeInteger(
+      record,
+      "best_session_difficulty_coverage",
+    ),
     efficiency_j_th: readNullableFiniteNumber(record, "efficiency_j_th"),
     enabled_miners: readNonNegativeInteger(record, "enabled_miners"),
     hashrate_coverage: readNonNegativeInteger(record, "hashrate_coverage"),
@@ -506,12 +527,12 @@ function parseMiner(value: unknown): Miner {
 
 export function parseFleetListResponse(value: unknown): FleetListResponse {
   const record = asRecord(value);
-  if (readFiniteNumber(record, "schema_version") !== 1) {
+  if (readFiniteNumber(record, "schema_version") !== 2) {
     invalidDto();
   }
   return {
     aggregates: parseFleetAggregates(record["aggregates"]),
-    schema_version: 1,
+    schema_version: 2,
     miners: asArray(record["miners"]).map(parseMiner),
     scan: parseScan(record["scan"]),
   };
@@ -723,6 +744,24 @@ function displayMinerName(miner: Miner): string {
   return miner.name.trim().length > 0 ? miner.name : miner.miner_id;
 }
 
+interface MinerStatus {
+  label: string;
+  tone: "disabled" | "offline" | "online" | "stale";
+}
+
+function minerStatus(miner: Miner): MinerStatus {
+  if (!miner.enabled) {
+    return { label: "Disabled", tone: "disabled" };
+  }
+  if (!miner.online) {
+    return { label: "Offline", tone: "offline" };
+  }
+  if (isStaleTimestamp(miner.last_success_at)) {
+    return { label: "Stale", tone: "stale" };
+  }
+  return { label: "Online", tone: "online" };
+}
+
 function displayMinerMetadata(
   model: string | null,
   firmware: string | null,
@@ -843,6 +882,20 @@ function parseGraphCardConfig(value: unknown): BitaxeFleetGraphCardConfig {
     return { metric };
   }
   return { metric, name: requestedName };
+}
+
+function parseOverviewCardConfig(value: unknown): BitaxeFleetOverviewCardConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Bitaxe Fleet overview card configuration must be an object.");
+  }
+  const requestedName = (value as Record<string, unknown>)["name"];
+  if (requestedName !== undefined && typeof requestedName !== "string") {
+    throw new Error("Bitaxe Fleet overview card name must be text.");
+  }
+  if (requestedName === undefined || requestedName.trim().length === 0) {
+    return {};
+  }
+  return { name: requestedName };
 }
 
 function graphCardMetric(value: unknown): FleetHistoryMetric {
@@ -2145,7 +2198,7 @@ export class BitaxeFleetPanel extends LitElement {
 
   private renderMinerRow(miner: Miner) {
     const busy = this.pendingMinerIds.has(miner.miner_id);
-    const status = this.minerStatus(miner);
+    const status = minerStatus(miner);
     const paused = miner.health?.mining_paused;
     return html`
       <tr>
@@ -2787,22 +2840,6 @@ export class BitaxeFleetPanel extends LitElement {
         validated.
       </div>
     `;
-  }
-
-  private minerStatus(miner: Miner): {
-    label: string;
-    tone: "disabled" | "offline" | "online" | "stale";
-  } {
-    if (!miner.enabled) {
-      return { label: "Disabled", tone: "disabled" };
-    }
-    if (!miner.online) {
-      return { label: "Offline", tone: "offline" };
-    }
-    if (isStaleTimestamp(miner.last_success_at)) {
-      return { label: "Stale", tone: "stale" };
-    }
-    return { label: "Online", tone: "online" };
   }
 
   private hasLoadedData(): boolean {
@@ -3496,6 +3533,7 @@ export class BitaxeFleetGraphCard extends LitElement {
   private historyRequestId = 0;
   private loading = false;
   private requestedMetric: FleetHistoryMetric | null = null;
+  private refreshTimer: number | undefined;
 
   public static styles = css`
     :host {
@@ -3679,7 +3717,19 @@ export class BitaxeFleetGraphCard extends LitElement {
 
   public override connectedCallback(): void {
     super.connectedCallback();
+    this.refreshTimer = window.setInterval(
+      this.refreshHistory,
+      CARD_REFRESH_INTERVAL_MS,
+    );
     void this.loadHistory();
+  }
+
+  public override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this.refreshTimer !== undefined) {
+      window.clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
   }
 
   protected override updated(changedProperties: PropertyValues<this>): void {
@@ -3725,7 +3775,7 @@ export class BitaxeFleetGraphCard extends LitElement {
   }
 
   private renderHistory(definition: FleetGraphMetricDefinition) {
-    if (this.hass === undefined || this.loading) {
+    if (this.hass === undefined || (this.loading && this.history === null)) {
       return html`<p class="status" role="status">Loading Recorder history...</p>`;
     }
     if (this.historyFailed) {
@@ -3782,6 +3832,10 @@ export class BitaxeFleetGraphCard extends LitElement {
   }
 
   private readonly handleRefresh = (): void => {
+    this.refreshHistory();
+  };
+
+  private readonly refreshHistory = (): void => {
     this.requestedMetric = null;
     void this.loadHistory();
   };
@@ -3830,6 +3884,532 @@ export class BitaxeFleetGraphCard extends LitElement {
   }
 }
 
+export class BitaxeFleetOverviewCard extends LitElement {
+  public static override properties = {
+    hass: { attribute: false },
+  };
+
+  public declare hass: HomeAssistant | undefined;
+
+  private config: BitaxeFleetOverviewCardConfig | null = null;
+  private fleet: FleetListResponse | null = null;
+  private initialLoadRequested = false;
+  private loadFailed = false;
+  private loading = false;
+  private requestId = 0;
+  private refreshTimer: number | undefined;
+
+  public static styles = css`
+    :host {
+      display: block;
+      min-inline-size: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    ha-card {
+      background:
+        linear-gradient(
+          140deg,
+          color-mix(in srgb, var(--primary-color, #0b6e69) 11%, transparent),
+          transparent 48%
+        ),
+        var(--card-background-color, #ffffff);
+      color: var(--primary-text-color, #17212b);
+      overflow: hidden;
+      padding: 1rem;
+    }
+
+    header {
+      align-items: flex-start;
+      display: flex;
+      gap: 0.75rem;
+      justify-content: space-between;
+      margin-block-end: 1rem;
+    }
+
+    h2,
+    p {
+      margin: 0;
+    }
+
+    .eyebrow,
+    .metric-label,
+    .miner-heading,
+    .refresh-window {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.66rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      color: var(--primary-color, #0b6e69);
+      margin-block-end: 0.18rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    .header-actions {
+      align-items: center;
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .refresh-window {
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      border-radius: 99rem;
+      padding: 0.25rem 0.42rem;
+      white-space: nowrap;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      border-radius: 0.35rem;
+      color: var(--secondary-text-color, #65717b);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.7rem;
+      font-weight: 650;
+      padding: 0.22rem 0.4rem;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--primary-color, #0b6e69);
+      color: var(--primary-color, #0b6e69);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--primary-color, #0b6e69);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .fleet-summary {
+      display: grid;
+      gap: 0.65rem;
+      grid-template-columns: minmax(11rem, 1.45fr) repeat(2, minmax(7rem, 1fr));
+      margin-block-end: 1.15rem;
+    }
+
+    .fleet-total,
+    .metric {
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      border-radius: 0.55rem;
+      min-inline-size: 0;
+      padding: 0.75rem;
+    }
+
+    .fleet-total {
+      background: color-mix(in srgb, var(--primary-color, #0b6e69) 8%, transparent);
+    }
+
+    .fleet-total strong,
+    .metric strong {
+      display: block;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.025em;
+      margin-block: 0.22rem;
+    }
+
+    .fleet-total strong {
+      font-size: clamp(1.35rem, 5vw, 1.85rem);
+      line-height: 1;
+    }
+
+    .metric strong {
+      font-size: 1.05rem;
+    }
+
+    .fleet-total small,
+    .metric small,
+    .miner-time {
+      color: var(--secondary-text-color, #65717b);
+      display: block;
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+
+    .miners-title {
+      align-items: baseline;
+      display: flex;
+      gap: 0.5rem;
+      justify-content: space-between;
+      margin-block: 0.2rem 0.45rem;
+    }
+
+    .miners-title h3 {
+      font-size: 0.88rem;
+      margin: 0;
+    }
+
+    .miners-title span {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.72rem;
+    }
+
+    .miner-heading,
+    .miner-row {
+      display: grid;
+      gap: 0.7rem;
+      grid-template-columns: minmax(10rem, 1.35fr) repeat(3, minmax(6.5rem, 1fr));
+    }
+
+    .miner-heading {
+      padding: 0.4rem 0.6rem;
+    }
+
+    .miner-row {
+      align-items: center;
+      border-block-start: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      padding: 0.7rem 0.6rem;
+    }
+
+    .miner-name {
+      min-inline-size: 0;
+    }
+
+    .miner-name strong {
+      display: block;
+      font-size: 0.86rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status {
+      border-radius: 99rem;
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 750;
+      line-height: 1;
+      margin-block: 0.28rem;
+      padding: 0.25rem 0.4rem;
+    }
+
+    .status.online {
+      background: color-mix(in srgb, #2e7d32 17%, transparent);
+      color: #2e7d32;
+    }
+
+    .status.stale {
+      background: color-mix(in srgb, #ed6c02 17%, transparent);
+      color: #b75500;
+    }
+
+    .status.offline,
+    .status.disabled {
+      background: color-mix(in srgb, var(--secondary-text-color, #65717b) 15%, transparent);
+      color: var(--secondary-text-color, #65717b);
+    }
+
+    .miner-metric strong {
+      display: block;
+      font-size: 0.86rem;
+      font-variant-numeric: tabular-nums;
+      margin-block-start: 0.16rem;
+      white-space: nowrap;
+    }
+
+    .status-message {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      padding-block: 1.6rem;
+    }
+
+    .status-message.error,
+    .refresh-error {
+      color: var(--error-color, #c62828);
+    }
+
+    .refresh-error {
+      font-size: 0.76rem;
+      line-height: 1.35;
+      margin-block-end: 0.65rem;
+    }
+
+    @media (max-width: 700px) {
+      .fleet-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .fleet-total {
+        grid-column: 1 / -1;
+      }
+
+      .miner-heading {
+        display: none;
+      }
+
+      .miner-row {
+        align-items: start;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .miner-name {
+        grid-column: 1 / -1;
+      }
+
+      .miner-metric:last-child {
+        grid-column: 1 / -1;
+      }
+
+      .metric-label {
+        display: block;
+      }
+    }
+
+    @media (min-width: 701px) {
+      .miner-metric .metric-label {
+        display: none;
+      }
+    }
+  `;
+
+  public setConfig(config: unknown): void {
+    this.config = parseOverviewCardConfig(config);
+    this.initialLoadRequested = false;
+    void this.loadFleet();
+    this.requestUpdate();
+  }
+
+  public getCardSize(): number {
+    return 5;
+  }
+
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    this.refreshTimer = window.setInterval(
+      this.refreshFleet,
+      CARD_REFRESH_INTERVAL_MS,
+    );
+    void this.loadFleet();
+  }
+
+  public override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this.refreshTimer !== undefined) {
+      window.clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
+  }
+
+  protected override updated(changedProperties: PropertyValues<this>): void {
+    if (!changedProperties.has("hass")) {
+      return;
+    }
+    if (this.hass === undefined) {
+      this.initialLoadRequested = false;
+      this.loading = false;
+      this.requestId += 1;
+      return;
+    }
+    void this.loadFleet();
+  }
+
+  protected override render() {
+    const config = this.config;
+    if (config === null) {
+      return html`<ha-card><p class="status-message">Card configuration is required.</p></ha-card>`;
+    }
+    return html`
+      <ha-card>
+        <header>
+          <div>
+            <p class="eyebrow">Bitaxe Fleet</p>
+            <h2>${config.name ?? "Fleet performance"}</h2>
+          </div>
+          <div class="header-actions">
+            <span class="refresh-window">30 s</span>
+            <button
+              aria-label="Refresh fleet performance"
+              ?disabled=${this.loading || this.hass === undefined}
+              @click=${this.handleRefresh}
+            >
+              Refresh
+            </button>
+          </div>
+        </header>
+        ${this.renderFleet()}
+      </ha-card>
+    `;
+  }
+
+  private renderFleet() {
+    if (this.hass === undefined) {
+      return html`<p class="status-message" role="status">Waiting for Home Assistant...</p>`;
+    }
+    if (this.fleet === null) {
+      if (this.loading) {
+        return html`<p class="status-message" role="status">Loading fleet performance...</p>`;
+      }
+      return html`
+        <p class="status-message error" role="alert">
+          Fleet performance could not be loaded. Confirm that this dashboard is open
+          as an administrator.
+        </p>
+      `;
+    }
+    const aggregates = this.fleet.aggregates;
+    if (aggregates === null) {
+      return html`<p class="status-message">Fleet aggregate data is unavailable.</p>`;
+    }
+    return html`
+      ${this.loadFailed
+        ? html`
+            <p class="refresh-error" role="alert">
+              The latest refresh failed. Showing the last successful fleet data.
+            </p>
+          `
+        : nothing}
+      <section class="fleet-summary" aria-label="Fresh enabled fleet summary">
+        <div class="fleet-total">
+          <span class="metric-label">Fresh enabled fleet</span>
+          <strong>${formatHashrate(aggregates.total_hashrate_gh_s)}</strong>
+          <small>
+            ${formatNumber(aggregates.online_miners, 0)} / ${formatNumber(
+              aggregates.enabled_miners,
+              0,
+            )} online · ${formatCoverage(
+              aggregates.hashrate_coverage,
+              aggregates.enabled_miners,
+            )}
+          </small>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Best overall</span>
+          <strong>${formatDifficulty(aggregates.best_difficulty)}</strong>
+          <small>
+            ${formatCoverage(
+              aggregates.best_difficulty_coverage,
+              aggregates.enabled_miners,
+            )}
+          </small>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Best session</span>
+          <strong>${formatDifficulty(aggregates.best_session_difficulty)}</strong>
+          <small>
+            ${formatCoverage(
+              aggregates.best_session_difficulty_coverage,
+              aggregates.enabled_miners,
+            )}
+          </small>
+        </div>
+      </section>
+      ${this.renderMiners(this.fleet.miners)}
+    `;
+  }
+
+  private renderMiners(miners: readonly Miner[]) {
+    if (miners.length === 0) {
+      return html`<p class="status-message">No miners have been enrolled yet.</p>`;
+    }
+    return html`
+      <section aria-label="Individual miner performance">
+        <div class="miners-title">
+          <h3>Individual miners</h3>
+          <span>All enrolled miners</span>
+        </div>
+        <div class="miner-heading" aria-hidden="true">
+          <span>Miner</span>
+          <span>Hashrate</span>
+          <span>Best overall</span>
+          <span>Best session</span>
+        </div>
+        ${miners.map((miner) => this.renderMiner(miner))}
+      </section>
+    `;
+  }
+
+  private renderMiner(miner: Miner) {
+    const status = minerStatus(miner);
+    const telemetry = miner.telemetry;
+    return html`
+      <div class="miner-row">
+        <div class="miner-name">
+          <strong title=${displayMinerName(miner)}>${displayMinerName(miner)}</strong>
+          <span class="status ${status.tone}">${status.label}</span>
+          <span class="miner-time" title=${formatTimestamp(miner.last_success_at)}>
+            Last success: ${formatRelativeTime(miner.last_success_at)}
+          </span>
+        </div>
+        <div class="miner-metric">
+          <span class="metric-label">Hashrate</span>
+          <strong>${formatHashrate(telemetry?.hashrate_gh_s ?? null)}</strong>
+        </div>
+        <div class="miner-metric">
+          <span class="metric-label">Best overall</span>
+          <strong>${formatDifficulty(telemetry?.best_difficulty ?? null)}</strong>
+        </div>
+        <div class="miner-metric">
+          <span class="metric-label">Best session</span>
+          <strong>${formatDifficulty(telemetry?.best_session_difficulty ?? null)}</strong>
+        </div>
+      </div>
+    `;
+  }
+
+  private readonly handleRefresh = (): void => {
+    this.refreshFleet();
+  };
+
+  private readonly refreshFleet = (): void => {
+    void this.loadFleet(true);
+  };
+
+  private async loadFleet(force = false): Promise<void> {
+    const config = this.config;
+    const hass = this.hass;
+    if (
+      config === null ||
+      hass === undefined ||
+      this.loading ||
+      (!force && this.initialLoadRequested)
+    ) {
+      return;
+    }
+
+    const requestId = this.requestId + 1;
+    this.requestId = requestId;
+    this.initialLoadRequested = true;
+    this.loading = true;
+    this.loadFailed = false;
+    this.requestUpdate();
+    try {
+      const response = parseFleetListResponse(
+        await hass.callWS({ type: "bitaxe_fleet/fleet/list" }),
+      );
+      if (this.requestId !== requestId) {
+        return;
+      }
+      this.fleet = response;
+    } catch {
+      if (this.requestId === requestId) {
+        this.loadFailed = true;
+      }
+    } finally {
+      if (this.requestId === requestId) {
+        this.loading = false;
+        this.requestUpdate();
+      }
+    }
+  }
+}
+
 if (customElements.get(PANEL_TAG) === undefined) {
   customElements.define(PANEL_TAG, BitaxeFleetPanel);
 }
@@ -3838,12 +4418,23 @@ if (customElements.get(CARD_TAG) === undefined) {
   customElements.define(CARD_TAG, BitaxeFleetGraphCard);
 }
 
+if (customElements.get(OVERVIEW_CARD_TAG) === undefined) {
+  customElements.define(OVERVIEW_CARD_TAG, BitaxeFleetOverviewCard);
+}
+
 const registeredCards = window.customCards ?? [];
 if (!registeredCards.some((card) => card.type === CARD_TAG)) {
   registeredCards.push({
     type: CARD_TAG,
     name: "Bitaxe Fleet graph",
     description: "Recorder-backed 24-hour fleet hashrate, power, or efficiency.",
+  });
+}
+if (!registeredCards.some((card) => card.type === OVERVIEW_CARD_TAG)) {
+  registeredCards.push({
+    type: OVERVIEW_CARD_TAG,
+    name: "Bitaxe Fleet performance",
+    description: "Current per-miner hashrate and best difficulty with fresh fleet totals.",
   });
 }
 window.customCards = registeredCards;

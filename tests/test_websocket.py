@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from ipaddress import IPv4Address
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
@@ -11,17 +13,27 @@ from homeassistant.components.websocket_api.connection import ActiveConnection
 from homeassistant.core import HomeAssistant
 
 from custom_components.bitaxe_fleet.aggregates import FleetAggregates
-from custom_components.bitaxe_fleet.axeos.models import OverheatPolicy
+from custom_components.bitaxe_fleet.axeos.models import (
+    EnrolledMiner,
+    MinerEndpoint,
+    MinerHealth,
+    MinerIdentity,
+    MinerSnapshot,
+    MinerTelemetry,
+    OverheatPolicy,
+)
 from custom_components.bitaxe_fleet.axeos.parser import normalize_miner_id
 from custom_components.bitaxe_fleet.history import (
     FleetTelemetryHistory,
     MinerTelemetryHistory,
     TelemetryHistoryPoint,
 )
+from custom_components.bitaxe_fleet.runtime import BitaxeFleetRuntime
 from custom_components.bitaxe_fleet.websocket import (
     _fleet_aggregates_dto,
     _fleet_history_dto,
     _history_dto,
+    _miner_dto,
     _policy_from_message,
     _runtime_or_error,
     async_register_websocket_commands,
@@ -134,6 +146,7 @@ def test_fleet_aggregate_dto_retains_values_and_coverage() -> None:
         power_coverage=2,
         uptime_coverage=1,
         best_difficulty_coverage=2,
+        best_session_difficulty_coverage=2,
         unhealthy_coverage=2,
         overheat_coverage=1,
         total_hashrate_gh_s=650.0,
@@ -142,6 +155,7 @@ def test_fleet_aggregate_dto_retains_values_and_coverage() -> None:
         efficiency_j_th=55.38461538461539,
         total_uptime_seconds=3_600,
         best_difficulty=1_250_000.0,
+        best_session_difficulty=750_000.0,
         unhealthy_miners=1,
         overheating_miners=0,
     )
@@ -150,10 +164,57 @@ def test_fleet_aggregate_dto_retains_values_and_coverage() -> None:
 
     assert dto["total_hashrate_gh_s"] == 650.0
     assert dto["best_difficulty"] == 1_250_000.0
+    assert dto["best_session_difficulty"] == 750_000.0
     assert dto["hashrate_coverage"] == 1
     assert dto["power_coverage"] == 2
     assert "miner_id" not in dto
     assert "endpoint" not in dto
+
+
+def test_miner_dto_includes_current_session_best_difficulty() -> None:
+    """Current-card data includes the validated AxeOS session-best field."""
+    observed_at = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
+    identity = MinerIdentity(
+        miner_id=normalize_miner_id("02:12:34:56:78:9a"),
+        hostname="bitaxe-lab",
+        asic_model="BM1368",
+        board_version="Bitaxe Supra",
+        firmware_version="v2.14.2",
+    )
+    snapshot = MinerSnapshot(
+        endpoint=MinerEndpoint(IPv4Address("192.168.10.25")),
+        identity=identity,
+        telemetry=MinerTelemetry(
+            hashrate_gh_s=650.0,
+            power_w=18.0,
+            temperature_c=54.0,
+            best_difficulty=1_250_000.0,
+            best_session_difficulty=750_000.0,
+        ),
+        observed_at=observed_at,
+        health=MinerHealth(),
+    )
+    miner = EnrolledMiner(endpoint=snapshot.endpoint, identity=identity)
+    runtime = cast(
+        BitaxeFleetRuntime,
+        SimpleNamespace(
+            get_coordinator=lambda _: SimpleNamespace(
+                snapshot=snapshot,
+                last_success_at=observed_at,
+                last_update_success=True,
+            )
+        ),
+    )
+
+    dto = _miner_dto(runtime, miner)
+
+    assert dto["telemetry"] == {
+        "best_difficulty": 1_250_000.0,
+        "best_session_difficulty": 750_000.0,
+        "hashrate_gh_s": 650.0,
+        "power_w": 18.0,
+        "temperature_c": 54.0,
+    }
 
 
 def test_fleet_history_dto_exposes_one_bounded_metric_series() -> None:

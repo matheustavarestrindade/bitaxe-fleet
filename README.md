@@ -76,10 +76,10 @@ used by the referenced dashboard and additional validated firmware fields:
 
 The Bitaxe Fleet hub device also provides fleet-wide total hashrate in GH/s and
 TH/s, total power, efficiency in J/TH, cumulative uptime, highest reported best
-difficulty, and online, unhealthy, and overheating counts. Aggregate values use
-only fresh snapshots from enabled miners. Each aggregate exposes enabled, online,
-and per-metric coverage attributes, so a partial fleet never looks like a
-complete zero-value total.
+difficulty and session-best difficulty, and online, unhealthy, and overheating
+counts. Aggregate values use only fresh snapshots from enabled miners. Each
+aggregate exposes enabled, online, and per-metric coverage attributes, so a
+partial fleet never looks like a complete zero-value total.
 
 The administrator panel lazily displays a 24-hour hashrate, power, and
 temperature graph using Home Assistant Recorder data. Bitaxe Fleet does not
@@ -99,6 +99,8 @@ integration loads. Add **Bitaxe Fleet graph** from the dashboard card picker,
 or use it directly in a dashboard configuration without adding a Lovelace
 resource:
 
+![Fleet hashrate dashboard card](screenshots/Fleet%20hashrate%20card.png)
+
 ```yaml
 type: custom:bitaxe-fleet-graph-card
 metric: hashrate
@@ -108,9 +110,32 @@ name: Fleet hashrate
 `metric` defaults to `hashrate`; `power` and `efficiency` are also supported.
 Each card reads only its selected aggregate from Home Assistant Recorder over a
 fixed 24-hour window, displays unavailable periods as graph gaps, and formats
-fleet hashrate dynamically as GH/s or TH/s. The card uses the same
-administrator-only WebSocket boundary as the fleet panel, so it must be viewed
-by an administrator.
+fleet hashrate dynamically as GH/s or TH/s. It refreshes its cached Recorder
+data every 30 seconds. The card uses the same administrator-only WebSocket
+boundary as the fleet panel, so it must be viewed by an administrator.
+
+### Fleet Dashboard Performance
+
+Add **Bitaxe Fleet performance** from the dashboard card picker to see the
+current fleet and every enrolled miner without configuring entity IDs:
+
+```yaml
+type: custom:bitaxe-fleet-overview-card
+name: Fleet performance
+```
+
+The card shows each miner's current hashrate, best overall difficulty, best
+session difficulty, and online, stale, offline, or disabled state. Its fleet
+summary shows the fresh enabled-miner total hashrate and the highest reported
+overall and session difficulty, with explicit reporting coverage. Disabled and
+non-fresh miners stay visible in the individual list but do not contribute to
+the fleet summary. The card refreshes its cached data every 30 seconds; miners
+are polled by the integration every 60 seconds, so the card never causes extra
+requests to a miner.
+
+After installing or updating Bitaxe Fleet, reload the Home Assistant browser
+page before opening the card picker so Home Assistant loads the bundled card
+module.
 
 ## Controls And Profiles
 

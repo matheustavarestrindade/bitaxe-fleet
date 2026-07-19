@@ -57,6 +57,9 @@
       "fleet_best_difficulty": {
         "name": "Best difficulty"
       },
+      "fleet_best_session_difficulty": {
+        "name": "Best session difficulty"
+      },
       "online_miners": {
         "name": "Online miners"
       },

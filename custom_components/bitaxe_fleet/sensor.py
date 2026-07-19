@@ -274,6 +274,12 @@ FLEET_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
     ),
     SensorEntityDescription(
+        key="best_session_difficulty",
+        translation_key="fleet_best_session_difficulty",
+        icon="mdi:trophy-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
         key="online_miners",
         translation_key="online_miners",
         icon="mdi:access-point-check",
@@ -474,6 +480,8 @@ class BitaxeFleetAggregateSensor(SensorEntity):
                 return aggregates.total_uptime_seconds
             case "best_difficulty":
                 return aggregates.best_difficulty
+            case "best_session_difficulty":
+                return aggregates.best_session_difficulty
             case "online_miners":
                 return aggregates.online_miners
             case "unhealthy_miners":
@@ -498,6 +506,9 @@ def _coverage_attributes(aggregates: FleetAggregates) -> dict[str, int]:
         "power_coverage": aggregates.power_coverage,
         "uptime_coverage": aggregates.uptime_coverage,
         "best_difficulty_coverage": aggregates.best_difficulty_coverage,
+        "best_session_difficulty_coverage": (
+            aggregates.best_session_difficulty_coverage
+        ),
         "unhealthy_coverage": aggregates.unhealthy_coverage,
         "overheat_coverage": aggregates.overheat_coverage,
     }

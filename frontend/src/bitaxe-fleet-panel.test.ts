@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BitaxeFleetGraphCard,
+  BitaxeFleetOverviewCard,
   BitaxeFleetPanel,
   CARD_TAG,
+  OVERVIEW_CARD_TAG,
   PANEL_TAG,
   createHistoryPath,
   formatDifficulty,
@@ -67,6 +69,7 @@ function minerDto(): Record<string, unknown> {
     },
     telemetry: {
       best_difficulty: 1_250_000,
+      best_session_difficulty: 750_000,
       hashrate_gh_s: 700,
       power_w: 18.5,
       temperature_c: 51.2,
@@ -78,6 +81,8 @@ function fleetAggregatesDto(): Record<string, unknown> {
   return {
     best_difficulty: 1_250_000,
     best_difficulty_coverage: 1,
+    best_session_difficulty: 750_000,
+    best_session_difficulty_coverage: 1,
     efficiency_j_th: 26.43,
     enabled_miners: 1,
     hashrate_coverage: 1,
@@ -100,7 +105,7 @@ function fleetDto(miner = minerDto()): Record<string, unknown> {
     aggregates: fleetAggregatesDto(),
     miners: [miner],
     scan: scanDto(),
-    schema_version: 1,
+    schema_version: 2,
   };
 }
 
@@ -230,9 +235,11 @@ describe("BitaxeFleetPanel DTO boundary", () => {
   it("accepts the versioned DTO shape and rejects malformed nested values", () => {
     const fleet = parseFleetListResponse(fleetDto());
 
-    expect(fleet.schema_version).toBe(1);
+    expect(fleet.schema_version).toBe(2);
     expect(fleet.aggregates?.total_hashrate_gh_s).toBe(1_250);
+    expect(fleet.aggregates?.best_session_difficulty).toBe(750_000);
     expect(fleet.miners[0]?.telemetry?.hashrate_gh_s).toBe(700);
+    expect(fleet.miners[0]?.telemetry?.best_session_difficulty).toBe(750_000);
     expect(fleet.miners[0]?.policy.overheat_policy).toBe("keep_safe_values");
     expect(parseDiscoveryListResponse(discoveryDto()).candidates).toHaveLength(1);
     expect(parseIncidentsListResponse(incidentsDto()).incidents).toHaveLength(1);
@@ -250,6 +257,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     };
     partialMiner["telemetry"] = {
       best_difficulty: null,
+      best_session_difficulty: null,
       hashrate_gh_s: null,
       power_w: null,
       temperature_c: null,
@@ -261,6 +269,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     const invalidMiner = minerDto();
     invalidMiner["telemetry"] = {
       best_difficulty: 1_250_000,
+      best_session_difficulty: 750_000,
       hashrate_gh_s: "not-a-number",
       power_w: 18.5,
       temperature_c: 51.2,
@@ -269,6 +278,12 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     invalidFleet["miners"] = [invalidMiner];
 
     expect(() => parseFleetListResponse(invalidFleet)).toThrow(
+      "Unexpected Bitaxe Fleet response",
+    );
+
+    const incompatibleFleet = fleetDto();
+    incompatibleFleet["schema_version"] = 1;
+    expect(() => parseFleetListResponse(incompatibleFleet)).toThrow(
       "Unexpected Bitaxe Fleet response",
     );
     expect(() =>
@@ -594,5 +609,91 @@ describe("BitaxeFleetGraphCard", () => {
     expect(card.shadowRoot?.querySelector(".history-line")?.getAttribute("d")).toMatch(
       /^M.* M/,
     );
+  });
+
+  it("refreshes Recorder history every 30 seconds and stops when removed", async () => {
+    vi.useFakeTimers();
+    const calls: WebSocketCommand[] = [];
+    const card = new BitaxeFleetGraphCard();
+    card.setConfig({ type: "custom:bitaxe-fleet-graph-card" });
+    card.hass = {
+      callWS(message) {
+        calls.push(message);
+        if (message.type === "bitaxe_fleet/fleet/history") {
+          return Promise.resolve(fleetHistoryDto(message.metric));
+        }
+        throw new Error(`Unexpected graph request: ${message.type}`);
+      },
+    };
+    document.body.append(card);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+
+    card.remove();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe("BitaxeFleetOverviewCard", () => {
+  it("auto-registers current individual and fresh fleet performance", async () => {
+    const calls: WebSocketCommand[] = [];
+    const card = new BitaxeFleetOverviewCard();
+    card.setConfig({ type: "custom:bitaxe-fleet-overview-card" });
+    card.hass = {
+      callWS(message) {
+        calls.push(message);
+        if (message.type === "bitaxe_fleet/fleet/list") {
+          return Promise.resolve(fleetDto());
+        }
+        throw new Error(`Unexpected overview request: ${message.type}`);
+      },
+    };
+    document.body.append(card);
+
+    await vi.waitFor(() => {
+      expect(card.shadowRoot?.textContent).toContain("Fresh enabled fleet");
+      expect(card.shadowRoot?.textContent).toContain("Rack A-01");
+      expect(card.shadowRoot?.textContent).toContain(formatHashrate(700));
+      expect(card.shadowRoot?.textContent).toContain(formatDifficulty(1_250_000));
+      expect(card.shadowRoot?.textContent).toContain(formatDifficulty(750_000));
+    });
+
+    expect(customElements.get(OVERVIEW_CARD_TAG)).toBe(BitaxeFleetOverviewCard);
+    expect(
+      window.customCards?.some((metadata) => metadata.type === OVERVIEW_CARD_TAG),
+    ).toBe(true);
+    expect(calls).toEqual([{ type: "bitaxe_fleet/fleet/list" }]);
+  });
+
+  it("refreshes current performance every 30 seconds and stops when removed", async () => {
+    vi.useFakeTimers();
+    const calls: WebSocketCommand[] = [];
+    const card = new BitaxeFleetOverviewCard();
+    card.setConfig({ type: "custom:bitaxe-fleet-overview-card" });
+    card.hass = {
+      callWS(message) {
+        calls.push(message);
+        if (message.type === "bitaxe_fleet/fleet/list") {
+          return Promise.resolve(fleetDto());
+        }
+        throw new Error(`Unexpected overview request: ${message.type}`);
+      },
+    };
+    document.body.append(card);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+
+    card.remove();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
   });
 });

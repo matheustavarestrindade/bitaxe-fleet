@@ -155,6 +155,7 @@ async def test_enrolled_miner_creates_native_entities_and_linked_device(
         "total_power": "17.4",
         "total_uptime": "18574",
         "best_difficulty": "1250000.0",
+        "best_session_difficulty": "250000.0",
         "online_miners": "1",
         "unhealthy_miners": "1",
         "overheating_miners": "1",
@@ -171,6 +172,7 @@ async def test_enrolled_miner_creates_native_entities_and_linked_device(
         assert state.state == expected_state
         assert state.attributes["enabled_miners"] == 1
         assert state.attributes["online_miners"] == 1
+        assert state.attributes["best_session_difficulty_coverage"] == 1
 
     efficiency = hass.states.get(
         entities_by_unique_id[f"{entry.entry_id}_efficiency"].entity_id

@@ -25,13 +25,14 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-19, the published `0.5.0` release provides completed manual
+As of 2026-07-19, the published `0.6.0` release provides completed manual
 onboarding, mDNS and bounded explicit scanning, approval-based discovery, typed
 AxeOS capabilities/logs/mutations, profiles, administrator controls, incidents,
 diagnostics, expanded native telemetry and health entities, Recorder-backed
 performance and thermal history, an administrator panel, and opt-in automatic
-responsive recovery, fleet aggregate entities, compact panel formatting, and an
-auto-registered fleet dashboard graph card.
+responsive recovery, fleet aggregate entities, compact panel formatting,
+auto-registered fleet dashboard graph and performance cards, and session-best
+difficulty coverage.
 
 The implementation remains deliberately conservative. Only explicitly approved
 RFC 1918 endpoints are contacted, recovery is disabled by default, and a real

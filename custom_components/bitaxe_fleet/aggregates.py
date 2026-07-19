@@ -19,6 +19,7 @@ class FleetAggregates:
     power_coverage: int
     uptime_coverage: int
     best_difficulty_coverage: int
+    best_session_difficulty_coverage: int
     unhealthy_coverage: int
     overheat_coverage: int
     total_hashrate_gh_s: float | None
@@ -27,6 +28,7 @@ class FleetAggregates:
     efficiency_j_th: float | None
     total_uptime_seconds: int | None
     best_difficulty: float | None
+    best_session_difficulty: float | None
     unhealthy_miners: int | None
     overheating_miners: int | None
 
@@ -40,6 +42,7 @@ class FleetAggregates:
             power_coverage=0,
             uptime_coverage=0,
             best_difficulty_coverage=0,
+            best_session_difficulty_coverage=0,
             unhealthy_coverage=0,
             overheat_coverage=0,
             total_hashrate_gh_s=None,
@@ -48,6 +51,7 @@ class FleetAggregates:
             efficiency_j_th=None,
             total_uptime_seconds=None,
             best_difficulty=None,
+            best_session_difficulty=None,
             unhealthy_miners=None,
             overheating_miners=None,
         )
@@ -61,6 +65,7 @@ def calculate_fleet_aggregates(
     powers: list[float] = []
     uptimes: list[int] = []
     best_difficulties: list[float] = []
+    best_session_difficulties: list[float] = []
     unhealthy_coverage = 0
     overheat_coverage = 0
     unhealthy_miners = 0
@@ -76,6 +81,8 @@ def calculate_fleet_aggregates(
             uptimes.append(telemetry.uptime_seconds)
         if telemetry.best_difficulty is not None:
             best_difficulties.append(telemetry.best_difficulty)
+        if telemetry.best_session_difficulty is not None:
+            best_session_difficulties.append(telemetry.best_session_difficulty)
 
         condition = snapshot_condition(snapshot)
         if condition != "unknown":
@@ -98,6 +105,7 @@ def calculate_fleet_aggregates(
         power_coverage=len(powers),
         uptime_coverage=len(uptimes),
         best_difficulty_coverage=len(best_difficulties),
+        best_session_difficulty_coverage=len(best_session_difficulties),
         unhealthy_coverage=unhealthy_coverage,
         overheat_coverage=overheat_coverage,
         total_hashrate_gh_s=total_hashrate,
@@ -114,6 +122,9 @@ def calculate_fleet_aggregates(
         ),
         total_uptime_seconds=sum(uptimes) if uptimes else None,
         best_difficulty=max(best_difficulties) if best_difficulties else None,
+        best_session_difficulty=(
+            max(best_session_difficulties) if best_session_difficulties else None
+        ),
         unhealthy_miners=unhealthy_miners if unhealthy_coverage else None,
         overheating_miners=overheating_miners if overheat_coverage else None,
     )

@@ -76,7 +76,7 @@ async def websocket_fleet_list(
         msg["id"],
         {
             "aggregates": _fleet_aggregates_dto(runtime.fleet_aggregates),
-            "schema_version": 1,
+            "schema_version": 2,
             "miners": [_miner_dto(runtime, miner) for miner in runtime.registry.miners],
             "scan": _scan_dto(runtime),
         },
@@ -434,6 +434,7 @@ def _miner_dto(runtime: BitaxeFleetRuntime, miner: EnrolledMiner) -> dict[str, o
         "telemetry": (
             {
                 "best_difficulty": snapshot.telemetry.best_difficulty,
+                "best_session_difficulty": snapshot.telemetry.best_session_difficulty,
                 "hashrate_gh_s": snapshot.telemetry.hashrate_gh_s,
                 "power_w": snapshot.telemetry.power_w,
                 "temperature_c": snapshot.telemetry.temperature_c,
@@ -459,6 +460,10 @@ def _fleet_aggregates_dto(aggregates: FleetAggregates) -> dict[str, object]:
     return {
         "best_difficulty": aggregates.best_difficulty,
         "best_difficulty_coverage": aggregates.best_difficulty_coverage,
+        "best_session_difficulty": aggregates.best_session_difficulty,
+        "best_session_difficulty_coverage": (
+            aggregates.best_session_difficulty_coverage
+        ),
         "efficiency_j_th": aggregates.efficiency_j_th,
         "enabled_miners": aggregates.enabled_miners,
         "hashrate_coverage": aggregates.hashrate_coverage,

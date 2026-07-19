@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-19
+
+### Added
+
+- A bundled `custom:bitaxe-fleet-overview-card` that lists current hashrate,
+  overall best difficulty, and session-best difficulty for every enrolled miner
+  alongside fresh enabled-fleet totals and reporting coverage.
+- A hub-linked fleet session-best difficulty sensor and coverage attribute.
+
+### Changed
+
+- Dashboard graph and performance cards now refresh their cached data every
+  30 seconds without increasing miner polling frequency.
+
 ## [0.5.0] - 2026-07-19
 
 ### Added
