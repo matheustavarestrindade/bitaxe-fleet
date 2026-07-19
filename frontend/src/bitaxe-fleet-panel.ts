@@ -2,6 +2,7 @@ import { css, html, LitElement, nothing } from "lit";
 import type { PropertyValues } from "lit";
 
 export const PANEL_TAG = "bitaxe-fleet-panel";
+export const CARD_TAG = "bitaxe-fleet-graph-card";
 
 const STALE_AFTER_MS = 90_000;
 const STALE_CLOCK_INTERVAL_MS = 15_000;
@@ -18,6 +19,7 @@ export interface HomeAssistant {
 }
 
 export interface Telemetry {
+  best_difficulty: number | null;
   hashrate_gh_s: number | null;
   power_w: number | null;
   temperature_c: number | null;
@@ -78,7 +80,27 @@ export interface Scan {
   total_hosts: number;
 }
 
+export interface FleetAggregates {
+  best_difficulty: number | null;
+  best_difficulty_coverage: number;
+  efficiency_j_th: number | null;
+  enabled_miners: number;
+  hashrate_coverage: number;
+  online_miners: number;
+  overheat_coverage: number;
+  overheating_miners: number | null;
+  power_coverage: number;
+  total_hashrate_gh_s: number | null;
+  total_hashrate_th_s: number | null;
+  total_power_w: number | null;
+  total_uptime_seconds: number | null;
+  unhealthy_coverage: number;
+  unhealthy_miners: number | null;
+  uptime_coverage: number;
+}
+
 export interface FleetListResponse {
+  aggregates: FleetAggregates | null;
   schema_version: 1;
   miners: Miner[];
   scan: Scan;
@@ -130,6 +152,22 @@ export interface MinerTelemetryHistory {
   start_at: string;
 }
 
+export type FleetHistoryMetric = "efficiency" | "hashrate" | "power";
+
+export interface FleetTelemetryHistory {
+  available: boolean;
+  end_at: string;
+  metric: FleetHistoryMetric;
+  schema_version: 1;
+  series: TelemetryHistoryPoint[];
+  start_at: string;
+}
+
+export interface BitaxeFleetGraphCardConfig {
+  metric: FleetHistoryMetric;
+  name?: string;
+}
+
 export type WebSocketCommand =
   | { type: "bitaxe_fleet/fleet/list" }
   | { type: "bitaxe_fleet/discovery/list" }
@@ -150,6 +188,7 @@ export type WebSocketCommand =
     }
   | { type: "bitaxe_fleet/logs/get"; miner_id: string }
   | { type: "bitaxe_fleet/incidents/list" }
+  | { type: "bitaxe_fleet/fleet/history"; metric: FleetHistoryMetric }
   | { type: "bitaxe_fleet/miner/history"; miner_id: string };
 
 interface ScanStartResponse {
@@ -284,6 +323,17 @@ function readNonNegativeInteger(
   return value;
 }
 
+function readNullableNonNegativeInteger(
+  record: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = readNullableFiniteNumber(record, key);
+  if (value !== null && (!Number.isInteger(value) || value < 0)) {
+    invalidDto();
+  }
+  return value;
+}
+
 function readTimestamp(record: Record<string, unknown>, key: string): string | null {
   const value = readNullableString(record, key);
   if (value !== null && Number.isNaN(Date.parse(value))) {
@@ -322,6 +372,7 @@ function parseTelemetry(value: unknown): Telemetry | null {
   }
   const record = asRecord(value);
   return {
+    best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
     hashrate_gh_s: readNullableFiniteNumber(record, "hashrate_gh_s"),
     power_w: readNullableFiniteNumber(record, "power_w"),
     temperature_c: readNullableFiniteNumber(record, "temperature_c"),
@@ -410,6 +461,31 @@ function parseScan(value: unknown): Scan {
   };
 }
 
+function parseFleetAggregates(value: unknown): FleetAggregates | null {
+  if (value === undefined) {
+    return null;
+  }
+  const record = asRecord(value);
+  return {
+    best_difficulty: readNullableFiniteNumber(record, "best_difficulty"),
+    best_difficulty_coverage: readNonNegativeInteger(record, "best_difficulty_coverage"),
+    efficiency_j_th: readNullableFiniteNumber(record, "efficiency_j_th"),
+    enabled_miners: readNonNegativeInteger(record, "enabled_miners"),
+    hashrate_coverage: readNonNegativeInteger(record, "hashrate_coverage"),
+    online_miners: readNonNegativeInteger(record, "online_miners"),
+    overheat_coverage: readNonNegativeInteger(record, "overheat_coverage"),
+    overheating_miners: readNullableNonNegativeInteger(record, "overheating_miners"),
+    power_coverage: readNonNegativeInteger(record, "power_coverage"),
+    total_hashrate_gh_s: readNullableFiniteNumber(record, "total_hashrate_gh_s"),
+    total_hashrate_th_s: readNullableFiniteNumber(record, "total_hashrate_th_s"),
+    total_power_w: readNullableFiniteNumber(record, "total_power_w"),
+    total_uptime_seconds: readNullableNonNegativeInteger(record, "total_uptime_seconds"),
+    unhealthy_coverage: readNonNegativeInteger(record, "unhealthy_coverage"),
+    unhealthy_miners: readNullableNonNegativeInteger(record, "unhealthy_miners"),
+    uptime_coverage: readNonNegativeInteger(record, "uptime_coverage"),
+  };
+}
+
 function parseMiner(value: unknown): Miner {
   const record = asRecord(value);
   return {
@@ -434,6 +510,7 @@ export function parseFleetListResponse(value: unknown): FleetListResponse {
     invalidDto();
   }
   return {
+    aggregates: parseFleetAggregates(record["aggregates"]),
     schema_version: 1,
     miners: asArray(record["miners"]).map(parseMiner),
     scan: parseScan(record["scan"]),
@@ -509,6 +586,33 @@ export function parseMinerTelemetryHistory(value: unknown): MinerTelemetryHistor
   };
 }
 
+function parseFleetHistoryMetric(value: unknown): FleetHistoryMetric {
+  if (value === "efficiency" || value === "hashrate" || value === "power") {
+    return value;
+  }
+  return invalidDto();
+}
+
+export function parseFleetTelemetryHistory(value: unknown): FleetTelemetryHistory {
+  const record = asRecord(value);
+  if (readFiniteNumber(record, "schema_version") !== 1) {
+    invalidDto();
+  }
+  const startAt = readRequiredTimestamp(record, "start_at");
+  const endAt = readRequiredTimestamp(record, "end_at");
+  if (Date.parse(endAt) < Date.parse(startAt)) {
+    invalidDto();
+  }
+  return {
+    available: readBoolean(record, "available"),
+    end_at: endAt,
+    metric: parseFleetHistoryMetric(record["metric"]),
+    schema_version: 1,
+    series: asArray(record["series"]).map(parseTelemetryHistoryPoint),
+    start_at: startAt,
+  };
+}
+
 function parseScanStartResponse(value: unknown): ScanStartResponse {
   return { scan: parseScan(asRecord(value)["scan"]) };
 }
@@ -536,6 +640,33 @@ function parseApprovalResponse(value: unknown): ApprovalResponse {
 
 function formatNumber(value: number, maximumFractionDigits = 1): string {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
+}
+
+export function formatHashrate(value: number | null): string {
+  if (value === null) {
+    return "-- GH/s";
+  }
+  if (value >= 1_000) {
+    return `${formatNumber(value / 1_000, 2)} TH/s`;
+  }
+  return `${formatNumber(value, 2)} GH/s`;
+}
+
+export function formatDifficulty(value: number | null): string {
+  if (value === null) {
+    return "--";
+  }
+  const units: ReadonlyArray<readonly [number, string]> = [
+    [1_000_000_000_000, "T"],
+    [1_000_000_000, "G"],
+    [1_000_000, "M"],
+    [1_000, "K"],
+  ];
+  const unit = units.find(([threshold]) => value >= threshold);
+  if (unit === undefined) {
+    return formatNumber(value, 2);
+  }
+  return `${formatNumber(value / unit[0], 2)}${unit[1]}`;
 }
 
 function formatTimestamp(value: string | null): string {
@@ -606,6 +737,18 @@ function displayMinerMetadata(
 
 function formatMeasurement(value: number | null, unit: string): string {
   return value === null ? `-- ${unit}` : `${formatNumber(value)} ${unit}`;
+}
+
+function formatUptime(value: number | null): string {
+  return value === null ? "--" : `${formatNumber(value / 3_600, 2)} h`;
+}
+
+function formatCoverage(coverage: number, enabled: number): string {
+  return `${formatNumber(coverage, 0)}/${formatNumber(enabled, 0)} reporting`;
+}
+
+function formatAggregateCount(value: number | null): string {
+  return value === null ? "--" : formatNumber(value, 0);
 }
 
 const CHART_WIDTH = 640;
@@ -683,6 +826,54 @@ export function createHistoryPath(
     hasPath = true;
   }
   return path.trim();
+}
+
+function parseGraphCardConfig(value: unknown): BitaxeFleetGraphCardConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Bitaxe Fleet graph card configuration must be an object.");
+  }
+  const config = value as Record<string, unknown>;
+  const requestedMetric = config["metric"];
+  const metric = requestedMetric === undefined ? "hashrate" : graphCardMetric(requestedMetric);
+  const requestedName = config["name"];
+  if (requestedName !== undefined && typeof requestedName !== "string") {
+    throw new Error("Bitaxe Fleet graph card name must be text.");
+  }
+  if (requestedName === undefined || requestedName.trim().length === 0) {
+    return { metric };
+  }
+  return { metric, name: requestedName };
+}
+
+function graphCardMetric(value: unknown): FleetHistoryMetric {
+  if (value === "efficiency" || value === "hashrate" || value === "power") {
+    return value;
+  }
+  throw new Error(
+    "Bitaxe Fleet graph card metric must be hashrate, power, or efficiency.",
+  );
+}
+
+interface FleetGraphMetricDefinition {
+  title: string;
+  value: (number: number) => string;
+}
+
+function fleetGraphMetric(metric: FleetHistoryMetric): FleetGraphMetricDefinition {
+  switch (metric) {
+    case "hashrate":
+      return { title: "Fleet hashrate", value: formatHashrate };
+    case "power":
+      return {
+        title: "Fleet power",
+        value: (number) => `${formatNumber(number, 2)} W`,
+      };
+    case "efficiency":
+      return {
+        title: "Fleet efficiency",
+        value: (number) => `${formatNumber(number, 2)} J/TH`,
+      };
+  }
 }
 
 function actionLabel(action: MinerAction): string {
@@ -1237,6 +1428,69 @@ export class BitaxeFleetPanel extends LitElement {
       white-space: nowrap;
     }
 
+    .fleet-summary {
+      border-block-start: 1px solid var(--fleet-border);
+      display: grid;
+      grid-template-columns: minmax(13rem, 0.7fr) minmax(0, 2.3fr);
+    }
+
+    .fleet-summary-primary {
+      background: color-mix(in srgb, var(--fleet-accent) 8%, transparent);
+      display: grid;
+      gap: 0.25rem;
+      padding: 1rem;
+    }
+
+    .fleet-summary-primary span,
+    .fleet-summary-metrics dt,
+    .fleet-summary small {
+      color: var(--fleet-muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .fleet-summary-primary strong {
+      font-size: 1.45rem;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .fleet-summary-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 0;
+    }
+
+    .fleet-summary-metrics > div {
+      border-inline-start: 1px solid var(--fleet-border);
+      display: grid;
+      gap: 0.22rem;
+      min-inline-size: 0;
+      padding: 0.8rem;
+    }
+
+    .fleet-summary-metrics dt,
+    .fleet-summary-metrics dd,
+    .fleet-summary-metrics small {
+      margin: 0;
+    }
+
+    .fleet-summary-metrics dd {
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .fleet-summary small {
+      font-size: 0.62rem;
+      letter-spacing: 0.025em;
+      text-transform: none;
+    }
+
     .history-panel {
       border-block-start: 1px solid var(--fleet-border);
       padding: 1rem;
@@ -1511,8 +1765,13 @@ export class BitaxeFleetPanel extends LitElement {
 
       .scan-layout,
       .diagnostics-grid,
+      .fleet-summary,
       .history-grid {
         grid-template-columns: 1fr;
+      }
+
+      .fleet-summary-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .scan-progress {
@@ -1538,6 +1797,10 @@ export class BitaxeFleetPanel extends LitElement {
 
     @media (max-width: 460px) {
       .scan-form {
+        grid-template-columns: 1fr;
+      }
+
+      .fleet-summary-metrics {
         grid-template-columns: 1fr;
       }
 
@@ -1785,6 +2048,7 @@ export class BitaxeFleetPanel extends LitElement {
       `;
     }
     return html`
+      ${this.renderFleetSummary(this.fleet.aggregates)}
       <div class="table-scroll">
         <table>
           <thead>
@@ -1803,6 +2067,79 @@ export class BitaxeFleetPanel extends LitElement {
         </table>
       </div>
       ${this.renderHistoryPanel()}
+    `;
+  }
+
+  private renderFleetSummary(aggregates: FleetAggregates | null) {
+    if (aggregates === null) {
+      return nothing;
+    }
+    return html`
+      <div class="fleet-summary" aria-label="Fleet performance summary">
+        <div class="fleet-summary-primary">
+          <span>Fleet hashrate</span>
+          <strong>${formatHashrate(aggregates.total_hashrate_gh_s)}</strong>
+          <small>
+            ${formatCoverage(aggregates.hashrate_coverage, aggregates.enabled_miners)}
+          </small>
+        </div>
+        <dl class="fleet-summary-metrics">
+          <div>
+            <dt>Power</dt>
+            <dd>${formatMeasurement(aggregates.total_power_w, "W")}</dd>
+            <small>${formatCoverage(aggregates.power_coverage, aggregates.enabled_miners)}</small>
+          </div>
+          <div>
+            <dt>Efficiency</dt>
+            <dd>${formatMeasurement(aggregates.efficiency_j_th, "J/TH")}</dd>
+            <small>
+              ${formatNumber(aggregates.hashrate_coverage, 0)} hash / ${formatNumber(
+                aggregates.power_coverage,
+                0,
+              )} power
+            </small>
+          </div>
+          <div>
+            <dt>Best difficulty</dt>
+            <dd>${formatDifficulty(aggregates.best_difficulty)}</dd>
+            <small>
+              ${formatCoverage(
+                aggregates.best_difficulty_coverage,
+                aggregates.enabled_miners,
+              )}
+            </small>
+          </div>
+          <div>
+            <dt>Cumulative uptime</dt>
+            <dd>${formatUptime(aggregates.total_uptime_seconds)}</dd>
+            <small>${formatCoverage(aggregates.uptime_coverage, aggregates.enabled_miners)}</small>
+          </div>
+          <div>
+            <dt>Online</dt>
+            <dd>
+              ${formatNumber(aggregates.online_miners, 0)} / ${formatNumber(
+                aggregates.enabled_miners,
+                0,
+              )}
+            </dd>
+            <small>fresh coordinators</small>
+          </div>
+          <div>
+            <dt>Safety</dt>
+            <dd>
+              ${formatAggregateCount(aggregates.unhealthy_miners)} unhealthy / ${formatAggregateCount(
+                aggregates.overheating_miners,
+              )} hot
+            </dd>
+            <small>
+              ${formatNumber(aggregates.unhealthy_coverage, 0)} health / ${formatNumber(
+                aggregates.overheat_coverage,
+                0,
+              )} thermal
+            </small>
+          </div>
+        </dl>
+      </div>
     `;
   }
 
@@ -1895,9 +2232,10 @@ export class BitaxeFleetPanel extends LitElement {
       return html`<span class="muted">Awaiting telemetry</span>`;
     }
     return html`
-      <span class="metric">${formatMeasurement(telemetry.hashrate_gh_s, "GH/s")}</span>
+      <span class="metric">${formatHashrate(telemetry.hashrate_gh_s)}</span>
       <span class="metric">${formatMeasurement(telemetry.power_w, "W")}</span>
       <span class="metric">${formatMeasurement(telemetry.temperature_c, "deg C")}</span>
+      <span class="metric">Best difficulty: ${formatDifficulty(telemetry.best_difficulty)}</span>
     `;
   }
 
@@ -1973,6 +2311,7 @@ export class BitaxeFleetPanel extends LitElement {
           "GH/s",
           "hashrate",
           series.hashrate_gh_s,
+          formatHashrate,
         )}
         ${this.renderHistoryChart("Power", "W", "power", series.power_w)}
         ${this.renderHistoryChart(
@@ -1990,6 +2329,7 @@ export class BitaxeFleetPanel extends LitElement {
     unit: string,
     tone: "hashrate" | "power" | "temperature",
     points: readonly TelemetryHistoryPoint[],
+    formatter?: (value: number) => string,
   ) {
     const summary = historySummary(points);
     if (summary === null) {
@@ -2001,12 +2341,13 @@ export class BitaxeFleetPanel extends LitElement {
       `;
     }
     const path = createHistoryPath(points);
+    const formatValue = formatter ?? ((value: number) => formatMeasurement(value, unit));
     return html`
       <figure class="history-chart ${tone}">
         <figcaption>
           <strong>${title}</strong>
           <span class="history-chart-summary">
-            ${formatMeasurement(summary.latest, unit)} latest
+            ${formatValue(summary.latest)} latest
           </span>
         </figcaption>
         <svg
@@ -2024,8 +2365,7 @@ export class BitaxeFleetPanel extends LitElement {
           <path class="history-line" d=${path}></path>
         </svg>
         <span class="history-chart-summary">
-          Min ${formatMeasurement(summary.minimum, unit)} / max
-          ${formatMeasurement(summary.maximum, unit)}
+          Min ${formatValue(summary.minimum)} / max ${formatValue(summary.maximum)}
         </span>
       </figure>
     `;
@@ -3131,6 +3471,379 @@ export class BitaxeFleetPanel extends LitElement {
   }
 }
 
+interface CustomCardMetadata {
+  description: string;
+  name: string;
+  type: string;
+}
+
+declare global {
+  interface Window {
+    customCards?: CustomCardMetadata[];
+  }
+}
+
+export class BitaxeFleetGraphCard extends LitElement {
+  public static override properties = {
+    hass: { attribute: false },
+  };
+
+  public declare hass: HomeAssistant | undefined;
+
+  private config: BitaxeFleetGraphCardConfig | null = null;
+  private history: FleetTelemetryHistory | null = null;
+  private historyFailed = false;
+  private historyRequestId = 0;
+  private loading = false;
+  private requestedMetric: FleetHistoryMetric | null = null;
+
+  public static styles = css`
+    :host {
+      display: block;
+      min-inline-size: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    ha-card {
+      background:
+        linear-gradient(
+          150deg,
+          color-mix(in srgb, var(--primary-color, #0b6e69) 10%, transparent),
+          transparent 54%
+        ),
+        var(--card-background-color, #ffffff);
+      color: var(--primary-text-color, #17212b);
+      min-block-size: 15rem;
+      overflow: hidden;
+      padding: 1rem;
+      position: relative;
+    }
+
+    header {
+      align-items: flex-start;
+      display: flex;
+      gap: 0.75rem;
+      justify-content: space-between;
+    }
+
+    h2,
+    p {
+      margin: 0;
+    }
+
+    .eyebrow,
+    .window,
+    .summary-label {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.66rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      color: var(--primary-color, #0b6e69);
+      margin-block-end: 0.18rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    .header-actions {
+      align-items: center;
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .window {
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      border-radius: 99rem;
+      padding: 0.25rem 0.42rem;
+      white-space: nowrap;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.32));
+      border-radius: 0.35rem;
+      color: var(--secondary-text-color, #65717b);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.7rem;
+      font-weight: 650;
+      padding: 0.22rem 0.4rem;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--primary-color, #0b6e69);
+      color: var(--primary-color, #0b6e69);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--primary-color, #0b6e69);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .value {
+      font-size: clamp(1.6rem, 7vw, 2.25rem);
+      font-variant-numeric: tabular-nums;
+      font-weight: 760;
+      letter-spacing: -0.045em;
+      line-height: 1;
+      margin-block: 1rem 0.6rem;
+    }
+
+    .value span {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.7rem;
+      font-weight: 650;
+      letter-spacing: 0;
+      margin-inline-start: 0.35rem;
+    }
+
+    svg {
+      block-size: auto;
+      display: block;
+      inline-size: 100%;
+      margin-block: 0.25rem 0.7rem;
+    }
+
+    .gridline {
+      stroke: color-mix(in srgb, var(--divider-color, rgba(127, 127, 127, 0.32)) 75%, transparent);
+      stroke-width: 1;
+    }
+
+    .history-line {
+      fill: none;
+      stroke: var(--primary-color, #0b6e69);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 3;
+    }
+
+    .summary {
+      display: flex;
+      font-variant-numeric: tabular-nums;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+
+    .summary-value {
+      color: var(--primary-text-color, #17212b);
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-block-start: 0.16rem;
+      white-space: nowrap;
+    }
+
+    .status {
+      color: var(--secondary-text-color, #65717b);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      padding-block: 2.6rem 1.6rem;
+    }
+
+    .status.error {
+      color: var(--error-color, #c62828);
+    }
+  `;
+
+  public setConfig(config: unknown): void {
+    const nextConfig = parseGraphCardConfig(config);
+    const metricChanged = this.config?.metric !== nextConfig.metric;
+    this.config = nextConfig;
+    if (metricChanged) {
+      this.history = null;
+      this.historyFailed = false;
+      this.requestedMetric = null;
+      void this.loadHistory();
+    }
+    this.requestUpdate();
+  }
+
+  public getCardSize(): number {
+    return 3;
+  }
+
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    void this.loadHistory();
+  }
+
+  protected override updated(changedProperties: PropertyValues<this>): void {
+    if (!changedProperties.has("hass")) {
+      return;
+    }
+    if (this.hass === undefined) {
+      this.historyRequestId += 1;
+      this.loading = false;
+      this.requestedMetric = null;
+      return;
+    }
+    void this.loadHistory();
+  }
+
+  protected override render() {
+    const config = this.config;
+    if (config === null) {
+      return html`<ha-card><p class="status">Graph card configuration is required.</p></ha-card>`;
+    }
+    const definition = fleetGraphMetric(config.metric);
+    return html`
+      <ha-card>
+        <header>
+          <div>
+            <p class="eyebrow">Bitaxe Fleet</p>
+            <h2>${config.name ?? definition.title}</h2>
+          </div>
+          <div class="header-actions">
+            <span class="window">24 h</span>
+            <button
+              aria-label="Refresh fleet history"
+              ?disabled=${this.loading || this.hass === undefined}
+              @click=${this.handleRefresh}
+            >
+              Refresh
+            </button>
+          </div>
+        </header>
+        ${this.renderHistory(definition)}
+      </ha-card>
+    `;
+  }
+
+  private renderHistory(definition: FleetGraphMetricDefinition) {
+    if (this.hass === undefined || this.loading) {
+      return html`<p class="status" role="status">Loading Recorder history...</p>`;
+    }
+    if (this.historyFailed) {
+      return html`
+        <p class="status error" role="alert">
+          Fleet history could not be loaded. Confirm that Recorder is active and this
+          dashboard is open as an administrator.
+        </p>
+      `;
+    }
+    const history = this.history;
+    if (history === null || !history.available) {
+      return html`
+        <p class="status">
+          Home Assistant Recorder is unavailable, so no fleet history can be shown.
+        </p>
+      `;
+    }
+    const summary = historySummary(history.series);
+    if (summary === null) {
+      return html`
+        <p class="status">
+          No recorded ${definition.title.toLowerCase()} data is available yet.
+        </p>
+      `;
+    }
+    return html`
+      <p class="value">${definition.value(summary.latest)}<span>latest</span></p>
+      <svg
+        aria-label=${`${definition.title} for the last 24 hours`}
+        role="img"
+        viewBox="0 0 ${CHART_WIDTH} ${CHART_HEIGHT}"
+      >
+        <line
+          class="gridline"
+          x1=${CHART_PADDING}
+          x2=${CHART_WIDTH - CHART_PADDING}
+          y1=${CHART_HEIGHT / 2}
+          y2=${CHART_HEIGHT / 2}
+        ></line>
+        <path class="history-line" d=${createHistoryPath(history.series)}></path>
+      </svg>
+      <div class="summary" aria-label="History range">
+        <div>
+          <span class="summary-label">Minimum</span>
+          <span class="summary-value">${definition.value(summary.minimum)}</span>
+        </div>
+        <div>
+          <span class="summary-label">Maximum</span>
+          <span class="summary-value">${definition.value(summary.maximum)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  private readonly handleRefresh = (): void => {
+    this.requestedMetric = null;
+    void this.loadHistory();
+  };
+
+  private async loadHistory(): Promise<void> {
+    const config = this.config;
+    const hass = this.hass;
+    if (
+      config === null ||
+      hass === undefined ||
+      this.requestedMetric === config.metric
+    ) {
+      return;
+    }
+
+    const requestId = this.historyRequestId + 1;
+    this.historyRequestId = requestId;
+    this.requestedMetric = config.metric;
+    this.loading = true;
+    this.historyFailed = false;
+    this.requestUpdate();
+    try {
+      const response = parseFleetTelemetryHistory(
+        await hass.callWS({
+          type: "bitaxe_fleet/fleet/history",
+          metric: config.metric,
+        }),
+      );
+      if (response.metric !== config.metric) {
+        invalidDto();
+      }
+      if (this.historyRequestId !== requestId) {
+        return;
+      }
+      this.history = response;
+    } catch {
+      if (this.historyRequestId === requestId) {
+        this.historyFailed = true;
+      }
+    } finally {
+      if (this.historyRequestId === requestId) {
+        this.loading = false;
+        this.requestUpdate();
+      }
+    }
+  }
+}
+
 if (customElements.get(PANEL_TAG) === undefined) {
   customElements.define(PANEL_TAG, BitaxeFleetPanel);
 }
+
+if (customElements.get(CARD_TAG) === undefined) {
+  customElements.define(CARD_TAG, BitaxeFleetGraphCard);
+}
+
+const registeredCards = window.customCards ?? [];
+if (!registeredCards.some((card) => card.type === CARD_TAG)) {
+  registeredCards.push({
+    type: CARD_TAG,
+    name: "Bitaxe Fleet graph",
+    description: "Recorder-backed 24-hour fleet hashrate, power, or efficiency.",
+  });
+}
+window.customCards = registeredCards;

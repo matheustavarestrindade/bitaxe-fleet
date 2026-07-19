@@ -7,11 +7,12 @@ from dataclasses import dataclass, field
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
+from .aggregates import FleetAggregates, calculate_fleet_aggregates
 from .axeos.client import AxeOSClient
 from .axeos.errors import AxeOSError, AxeOSMutationUncertainError
 from .axeos.models import (
@@ -47,6 +48,16 @@ class BitaxeFleetRuntime:
     discovery: DiscoveryManager | None = field(default=None, init=False)
     _recovery_unsubscribers: dict[MinerId, Callable[[], None]] = field(
         default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _fleet_unsubscribers: dict[MinerId, Callable[[], None]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _fleet_aggregates: FleetAggregates = field(
+        default_factory=FleetAggregates.empty,
         init=False,
         repr=False,
     )
@@ -87,6 +98,16 @@ class BitaxeFleetRuntime:
         return f"bitaxe_fleet_miner_added_{self.entry_id}"
 
     @property
+    def fleet_updated_signal(self) -> str:
+        """Return the entry-specific dispatcher signal for cached fleet metrics."""
+        return f"bitaxe_fleet_updated_{self.entry_id}"
+
+    @property
+    def fleet_aggregates(self) -> FleetAggregates:
+        """Return the latest cached totals calculated from fresh snapshots only."""
+        return self._fleet_aggregates
+
+    @property
     def candidates(self) -> tuple[DiscoveryCandidate, ...]:
         """Return pending explicit-approval discovery candidates."""
         if self.discovery is None:
@@ -105,6 +126,8 @@ class BitaxeFleetRuntime:
         for miner in self.registry.miners:
             if miner.enabled:
                 await self.async_start_miner(entry, miner, notify_platforms=False)
+
+        self._async_refresh_fleet_aggregates()
 
         self.discovery = DiscoveryManager(
             self.hass,
@@ -140,6 +163,9 @@ class BitaxeFleetRuntime:
         self.coordinators[miner_id] = coordinator
         self._recovery_unsubscribers[miner_id] = coordinator.async_add_listener(
             lambda: self.recovery.async_schedule(miner_id)
+        )
+        self._fleet_unsubscribers[miner_id] = coordinator.async_add_listener(
+            self._async_refresh_fleet_aggregates
         )
         await coordinator.async_refresh()
         if notify_platforms:
@@ -178,10 +204,15 @@ class BitaxeFleetRuntime:
         unsubscribe = self._recovery_unsubscribers.pop(miner_id, None)
         if unsubscribe is not None:
             unsubscribe()
+        fleet_unsubscribe = self._fleet_unsubscribers.pop(miner_id, None)
+        if fleet_unsubscribe is not None:
+            fleet_unsubscribe()
         coordinator = self.coordinators.pop(miner_id, None)
         if coordinator is not None:
             await coordinator.async_shutdown()
-        return await self.registry.async_remove(miner_id)
+        removed = await self.registry.async_remove(miner_id)
+        self._async_refresh_fleet_aggregates()
+        return removed
 
     async def async_run_action(self, miner_id: MinerId, action: str) -> None:
         """Run one explicit restart, pause, resume, or identify request safely."""
@@ -302,11 +333,15 @@ class BitaxeFleetRuntime:
             unsubscribe = self._recovery_unsubscribers.pop(miner_id, None)
             if unsubscribe is not None:
                 unsubscribe()
+            fleet_unsubscribe = self._fleet_unsubscribers.pop(miner_id, None)
+            if fleet_unsubscribe is not None:
+                fleet_unsubscribe()
         if not enabled and coordinator is not None:
             await coordinator.async_shutdown()
             self.coordinators.pop(miner_id, None)
         if enabled and coordinator is None:
             await self.async_start_miner(self._entry(), miner, notify_platforms=True)
+        self._async_refresh_fleet_aggregates()
         return miner
 
     def get_coordinator(self, miner_id: MinerId) -> MinerCoordinator | None:
@@ -342,6 +377,9 @@ class BitaxeFleetRuntime:
         for unsubscribe in self._recovery_unsubscribers.values():
             unsubscribe()
         self._recovery_unsubscribers.clear()
+        for unsubscribe in self._fleet_unsubscribers.values():
+            unsubscribe()
+        self._fleet_unsubscribers.clear()
         for coordinator in self.coordinators.values():
             await coordinator.async_shutdown()
         self.coordinators.clear()
@@ -356,6 +394,23 @@ class BitaxeFleetRuntime:
         if coordinator is None or not coordinator.last_update_success:
             return None
         return coordinator.snapshot
+
+    @callback
+    def _async_refresh_fleet_aggregates(self) -> None:
+        """Cache linear fleet totals and notify entities after coordinator updates."""
+        enabled_miners = tuple(miner for miner in self.registry.miners if miner.enabled)
+        snapshots: list[MinerSnapshot] = []
+        for miner in enabled_miners:
+            coordinator = self.coordinators.get(miner.identity.miner_id)
+            if coordinator is None or not coordinator.last_update_success:
+                continue
+            snapshot = coordinator.snapshot
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        self._fleet_aggregates = calculate_fleet_aggregates(
+            len(enabled_miners), tuple(snapshots)
+        )
+        async_dispatcher_send(self.hass, self.fleet_updated_signal)
 
     async def _async_restart_for_recovery(
         self, miner_id: MinerId

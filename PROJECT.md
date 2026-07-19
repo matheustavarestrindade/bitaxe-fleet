@@ -25,20 +25,19 @@ decision log and obtain human approval before implementing it.
 
 ## Project State
 
-As of 2026-07-18, the published `0.3.1` release provides completed manual
+As of 2026-07-19, the published `0.5.0` release provides completed manual
 onboarding, mDNS and bounded explicit scanning, approval-based discovery, typed
 AxeOS capabilities/logs/mutations, profiles, administrator controls, incidents,
-diagnostics, an administrator panel, and opt-in automatic responsive recovery.
-The `0.4.0` release candidate adds the complete validated native telemetry and
-health entity set plus Recorder-backed performance and thermal history in the
-administrator panel.
+diagnostics, expanded native telemetry and health entities, Recorder-backed
+performance and thermal history, an administrator panel, and opt-in automatic
+responsive recovery, fleet aggregate entities, compact panel formatting, and an
+auto-registered fleet dashboard graph card.
 
 The implementation remains deliberately conservative. Only explicitly approved
 RFC 1918 endpoints are contacted, recovery is disabled by default, and a real
 device must be validated before enabling automatic recovery in production.
-Optional Satoshi Radio support, smart-plug recovery, full unreachable-device
-recovery, and broader fleet aggregate entities remain out of scope for this
-release candidate.
+Optional Satoshi Radio support, smart-plug recovery, and full unreachable-device
+recovery remain out of scope for the current release candidate.
 
 ## Product Definition
 
@@ -49,7 +48,7 @@ release candidate.
 | Source repository | `https://github.com/matheustavarestrindade/bitaxe-fleet` |
 | Distribution | HACS custom integration |
 | Backend | Asynchronous Python inside Home Assistant |
-| Frontend | Strict TypeScript compiled to a Home Assistant custom panel |
+| Frontend | Strict TypeScript compiled to a Home Assistant custom panel and Lovelace card |
 | Initial Home Assistant target | `2026.7.2` |
 | Development toolchain | Python `3.14.2` and Node.js `24.13.0` in a pinned Dev Container |
 | Required runtime services | Home Assistant only; no Node.js runtime, MQTT, add-on, or required external service |
@@ -240,7 +239,7 @@ domain models.
 | Storage | Persist versioned enrollment, policy, profile, and incidents | Store secrets or recorder time series |
 | Home Assistant platforms | Convert snapshots into entities and services | Parse raw API JSON |
 | WebSocket API | Validate authenticated commands and return DTOs | Return raw domain or wire objects |
-| Panel | Render DTOs and request commands | Contact miners directly |
+| Panel and dashboard card | Render DTOs and request commands | Contact miners directly |
 | Satoshi client | Fetch and normalize optional public pool data | Block local fleet functionality |
 
 No frontend code may access a miner URL. No entity may issue raw HTTP without
@@ -947,6 +946,7 @@ Suggested panel command namespace:
 | Command | Purpose | Mutates state |
 | --- | --- | --- |
 | `bitaxe_fleet/fleet/list` | Fleet summary | No |
+| `bitaxe_fleet/fleet/history` | Fixed fleet aggregate Recorder graph series | No |
 | `bitaxe_fleet/miner/get` | Miner detail | No |
 | `bitaxe_fleet/discovery/list` | Pending candidates and scan state | No |
 | `bitaxe_fleet/discovery/scan` | Start bounded scan | Yes |
@@ -1002,6 +1002,11 @@ Required behavior:
 
 History charts should query Home Assistant recorder/statistics rather than
 persisting duplicate time-series data in browser or integration storage.
+
+The bundled `custom:bitaxe-fleet-graph-card` must be registered through the
+Home Assistant frontend setup hook so dashboard users never add a resource URL
+manually. It requests one allowlisted aggregate metric over a fixed 24-hour
+Recorder window through the administrator-only WebSocket boundary.
 
 ## Optional Satoshi Radio Module
 

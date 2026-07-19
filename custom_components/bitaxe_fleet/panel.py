@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from homeassistant.components import panel_custom
+from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_when_setup
 
 _LOGGER = logging.getLogger(__name__)
 _PANEL_URL_PATH = "bitaxe-fleet"
@@ -44,7 +45,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         module_url=_STATIC_URL,
         require_admin=True,
     )
+    async_when_setup(hass, frontend.DOMAIN, _async_register_dashboard_card)
     hass.data[_REGISTERED_KEY] = True
+
+
+async def _async_register_dashboard_card(hass: HomeAssistant, _: str) -> None:
+    """Load the shared panel module once the Home Assistant frontend is ready."""
+    frontend.add_extra_js_url(hass, _STATIC_URL)
 
 
 def _bundle_path() -> Path:

@@ -7,12 +7,14 @@ from datetime import UTC, datetime
 from ipaddress import IPv4Address
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.bitaxe_fleet.axeos.errors import AxeOSConnectionError
 from custom_components.bitaxe_fleet.axeos.models import (
     MinerConfiguration,
     MinerEndpoint,
@@ -24,7 +26,10 @@ from custom_components.bitaxe_fleet.axeos.models import (
 from custom_components.bitaxe_fleet.axeos.parser import normalize_miner_id
 from custom_components.bitaxe_fleet.binary_sensor import BINARY_SENSOR_DESCRIPTIONS
 from custom_components.bitaxe_fleet.const import DOMAIN
-from custom_components.bitaxe_fleet.sensor import SENSOR_DESCRIPTIONS
+from custom_components.bitaxe_fleet.sensor import (
+    FLEET_SENSOR_DESCRIPTIONS,
+    SENSOR_DESCRIPTIONS,
+)
 from custom_components.bitaxe_fleet.storage import MinerRegistry
 
 
@@ -144,6 +149,35 @@ async def test_enrolled_miner_creates_native_entities_and_linked_device(
         assert state is not None
         assert state.state == expected_state
 
+    expected_fleet_sensor_states = {
+        "total_hashrate": "654.32",
+        "total_hashrate_th": "0.65432",
+        "total_power": "17.4",
+        "total_uptime": "18574",
+        "best_difficulty": "1250000.0",
+        "online_miners": "1",
+        "unhealthy_miners": "1",
+        "overheating_miners": "1",
+    }
+    assert {description.key for description in FLEET_SENSOR_DESCRIPTIONS} == {
+        *expected_fleet_sensor_states,
+        "efficiency",
+    }
+    for key, expected_state in expected_fleet_sensor_states.items():
+        state = hass.states.get(
+            entities_by_unique_id[f"{entry.entry_id}_{key}"].entity_id
+        )
+        assert state is not None
+        assert state.state == expected_state
+        assert state.attributes["enabled_miners"] == 1
+        assert state.attributes["online_miners"] == 1
+
+    efficiency = hass.states.get(
+        entities_by_unique_id[f"{entry.entry_id}_efficiency"].entity_id
+    )
+    assert efficiency is not None
+    assert float(efficiency.state) == pytest.approx(17.4 / (654.32 / 1_000))
+
     expected_binary_states = {
         "mining": "on",
         "fallback_pool": "on",
@@ -167,6 +201,7 @@ async def test_enrolled_miner_creates_native_entities_and_linked_device(
     assert hub is not None
     assert miner is not None
     assert miner.via_device_id == hub.id
+    assert entities_by_unique_id[f"{entry.entry_id}_total_hashrate"].device_id == hub.id
 
 
 async def test_explicit_enrollment_adds_every_entity_platform(
@@ -183,15 +218,19 @@ async def test_explicit_enrollment_adds_every_entity_platform(
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-        assert (
-            er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id) == []
-        )
+        assert len(
+            er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        ) == len(FLEET_SENSOR_DESCRIPTIONS)
 
         await entry.runtime_data.async_enroll_host("192.168.10.25")
         await hass.async_block_till_done()
 
     entries = er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    assert len(entries) == len(SENSOR_DESCRIPTIONS) + len(BINARY_SENSOR_DESCRIPTIONS)
+    assert len(entries) == (
+        len(FLEET_SENSOR_DESCRIPTIONS)
+        + len(SENSOR_DESCRIPTIONS)
+        + len(BINARY_SENSOR_DESCRIPTIONS)
+    )
 
 
 async def test_optional_miner_entities_remain_unknown(hass: HomeAssistant) -> None:
@@ -230,3 +269,94 @@ async def test_optional_miner_entities_remain_unknown(hass: HomeAssistant) -> No
     assert mining is not None
     assert voltage.state == STATE_UNKNOWN
     assert mining.state == STATE_UNKNOWN
+
+
+async def test_fleet_aggregates_refresh_after_a_coordinator_update(
+    hass: HomeAssistant,
+) -> None:
+    """The hub entities reuse the runtime aggregate cache after every fresh update."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    registry = MinerRegistry(hass, entry.entry_id)
+    snapshot = _snapshot()
+    await registry.async_enroll(snapshot)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.bitaxe_fleet.axeos.client.AxeOSClient.async_get_system_info",
+        new=AsyncMock(return_value=snapshot),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data.get_coordinator(snapshot.identity.miner_id)
+    assert coordinator is not None
+    coordinator.async_apply_discovered_snapshot(
+        replace(
+            snapshot,
+            telemetry=replace(
+                snapshot.telemetry,
+                hashrate_gh_s=1_250.0,
+                power_w=25.0,
+            ),
+        )
+    )
+    await hass.async_block_till_done()
+
+    entries_by_unique_id = {
+        registry_entry.unique_id: registry_entry
+        for registry_entry in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+    }
+    total_hashrate = hass.states.get(
+        entries_by_unique_id[f"{entry.entry_id}_total_hashrate"].entity_id
+    )
+    total_power = hass.states.get(
+        entries_by_unique_id[f"{entry.entry_id}_total_power"].entity_id
+    )
+    assert total_hashrate is not None
+    assert total_power is not None
+    assert total_hashrate.state == "1250.0"
+    assert total_power.state == "25.0"
+
+
+async def test_fleet_aggregates_exclude_a_stale_coordinator(
+    hass: HomeAssistant,
+) -> None:
+    """A failed refresh excludes the retained last-good snapshot from fleet totals."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    registry = MinerRegistry(hass, entry.entry_id)
+    snapshot = _snapshot()
+    await registry.async_enroll(snapshot)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.bitaxe_fleet.axeos.client.AxeOSClient.async_get_system_info",
+        new=AsyncMock(
+            side_effect=[snapshot, AxeOSConnectionError("system info")],
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data.get_coordinator(snapshot.identity.miner_id)
+        assert coordinator is not None
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    entries_by_unique_id = {
+        registry_entry.unique_id: registry_entry
+        for registry_entry in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+    }
+    total_hashrate = hass.states.get(
+        entries_by_unique_id[f"{entry.entry_id}_total_hashrate"].entity_id
+    )
+    online_miners = hass.states.get(
+        entries_by_unique_id[f"{entry.entry_id}_online_miners"].entity_id
+    )
+    assert total_hashrate is not None
+    assert online_miners is not None
+    assert total_hashrate.state == STATE_UNKNOWN
+    assert total_hashrate.attributes["online_miners"] == 0
+    assert online_miners.state == "0"

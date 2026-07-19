@@ -15,12 +15,18 @@ from homeassistant.components.websocket_api.decorators import (
 )
 from homeassistant.core import HomeAssistant
 
+from .aggregates import FleetAggregates
 from .axeos.errors import AxeOSError
 from .axeos.models import EnrolledMiner, MinerId, RecoveryPolicy
 from .axeos.parser import normalize_miner_id
 from .const import DOMAIN
 from .discovery.manager import DiscoveryError
-from .history import MinerTelemetryHistory, async_get_miner_telemetry_history
+from .history import (
+    FleetTelemetryHistory,
+    MinerTelemetryHistory,
+    async_get_fleet_telemetry_history,
+    async_get_miner_telemetry_history,
+)
 from .redaction import redact_text
 from .runtime import BitaxeFleetRuntime, FleetActionError
 
@@ -35,6 +41,7 @@ _TYPE_PROFILE_APPLY = "bitaxe_fleet/profile/apply"
 _TYPE_POLICY_UPDATE = "bitaxe_fleet/policy/update"
 _TYPE_LOGS_GET = "bitaxe_fleet/logs/get"
 _TYPE_INCIDENTS_LIST = "bitaxe_fleet/incidents/list"
+_TYPE_FLEET_HISTORY = "bitaxe_fleet/fleet/history"
 _TYPE_MINER_HISTORY = "bitaxe_fleet/miner/history"
 
 
@@ -51,6 +58,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     async_register_command(hass, websocket_policy_update)
     async_register_command(hass, websocket_logs_get)
     async_register_command(hass, websocket_incidents_list)
+    async_register_command(hass, websocket_fleet_history)
     async_register_command(hass, websocket_miner_history)
 
 
@@ -67,6 +75,7 @@ async def websocket_fleet_list(
     connection.send_result(
         msg["id"],
         {
+            "aggregates": _fleet_aggregates_dto(runtime.fleet_aggregates),
             "schema_version": 1,
             "miners": [_miner_dto(runtime, miner) for miner in runtime.registry.miners],
             "scan": _scan_dto(runtime),
@@ -343,6 +352,35 @@ async def websocket_miner_history(
     connection.send_result(msg["id"], _history_dto(miner_id, history))
 
 
+@websocket_command(
+    {
+        vol.Required("type"): _TYPE_FLEET_HISTORY,
+        vol.Required("metric"): vol.In({"hashrate", "power", "efficiency"}),
+    }
+)
+@require_admin
+@async_response
+async def websocket_fleet_history(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Return one bounded Recorder-backed fleet aggregate graph series."""
+    runtime = _runtime_or_error(hass, connection, msg)
+    if runtime is None:
+        return
+    metric = msg["metric"]
+    if not isinstance(metric, str):
+        connection.send_error(msg["id"], "invalid_metric", "Metric is invalid")
+        return
+    try:
+        history = await async_get_fleet_telemetry_history(
+            hass, runtime.entry_id, metric
+        )
+    except ValueError:
+        connection.send_error(msg["id"], "invalid_metric", "Metric is invalid")
+        return
+    connection.send_result(msg["id"], _fleet_history_dto(history))
+
+
 def _runtime(hass: HomeAssistant) -> BitaxeFleetRuntime:
     """Find the singleton typed runtime without accepting caller-provided entries."""
     entries = hass.config_entries.async_entries(DOMAIN)
@@ -395,6 +433,7 @@ def _miner_dto(runtime: BitaxeFleetRuntime, miner: EnrolledMiner) -> dict[str, o
         "profile": _profile_dto(miner.recovery_profile),
         "telemetry": (
             {
+                "best_difficulty": snapshot.telemetry.best_difficulty,
                 "hashrate_gh_s": snapshot.telemetry.hashrate_gh_s,
                 "power_w": snapshot.telemetry.power_w,
                 "temperature_c": snapshot.telemetry.temperature_c,
@@ -412,6 +451,28 @@ def _miner_dto(runtime: BitaxeFleetRuntime, miner: EnrolledMiner) -> dict[str, o
             if snapshot is not None
             else None
         ),
+    }
+
+
+def _fleet_aggregates_dto(aggregates: FleetAggregates) -> dict[str, object]:
+    """Serialize current fleet totals and coverage without per-miner raw data."""
+    return {
+        "best_difficulty": aggregates.best_difficulty,
+        "best_difficulty_coverage": aggregates.best_difficulty_coverage,
+        "efficiency_j_th": aggregates.efficiency_j_th,
+        "enabled_miners": aggregates.enabled_miners,
+        "hashrate_coverage": aggregates.hashrate_coverage,
+        "online_miners": aggregates.online_miners,
+        "overheat_coverage": aggregates.overheat_coverage,
+        "overheating_miners": aggregates.overheating_miners,
+        "power_coverage": aggregates.power_coverage,
+        "total_hashrate_gh_s": aggregates.total_hashrate_gh_s,
+        "total_hashrate_th_s": aggregates.total_hashrate_th_s,
+        "total_power_w": aggregates.total_power_w,
+        "total_uptime_seconds": aggregates.total_uptime_seconds,
+        "unhealthy_coverage": aggregates.unhealthy_coverage,
+        "unhealthy_miners": aggregates.unhealthy_miners,
+        "uptime_coverage": aggregates.uptime_coverage,
     }
 
 
@@ -455,6 +516,21 @@ def _history_dto(
                 for point in history.temperature_c
             ],
         },
+        "start_at": history.start_at.isoformat(),
+    }
+
+
+def _fleet_history_dto(history: FleetTelemetryHistory) -> dict[str, object]:
+    """Serialize a selected fleet series without entity or entry identifiers."""
+    return {
+        "available": history.recorder_available,
+        "end_at": history.end_at.isoformat(),
+        "metric": history.metric,
+        "schema_version": 1,
+        "series": [
+            {"at": point.observed_at.isoformat(), "value": point.value}
+            for point in history.points
+        ],
         "start_at": history.start_at.isoformat(),
     }
 

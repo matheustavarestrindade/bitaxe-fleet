@@ -17,8 +17,13 @@ normalized MAC address rather than a changing DHCP address.
 - MAC-safe endpoint updates when an enrolled miner moves to a new IP address.
 - Native Home Assistant miner devices with 29 typed telemetry sensors and five
   health binary sensors.
+- Nine hub-linked fleet aggregate sensors for combined hashrate, power,
+  efficiency, uptime, best difficulty, and current fleet health counts.
 - A Recorder-backed, administrator-only 24-hour performance and thermal graph
   for each enrolled miner.
+- An auto-registered `custom:bitaxe-fleet-graph-card` for compact fleet
+  hashrate, power, or efficiency history in any dashboard, with no manual
+  Lovelace resource setup.
 - Typed reads for AxeOS system information, ASIC capabilities, and bounded logs.
 - Explicit restart, pause, resume, identify, profile capture, and profile apply
   controls through administrator-only services and the fleet panel.
@@ -69,14 +74,43 @@ used by the referenced dashboard and additional validated firmware fields:
 - Mining, fallback-pool, overheating, power-fault, and hardware-fault binary
   health states.
 
+The Bitaxe Fleet hub device also provides fleet-wide total hashrate in GH/s and
+TH/s, total power, efficiency in J/TH, cumulative uptime, highest reported best
+difficulty, and online, unhealthy, and overheating counts. Aggregate values use
+only fresh snapshots from enabled miners. Each aggregate exposes enabled, online,
+and per-metric coverage attributes, so a partial fleet never looks like a
+complete zero-value total.
+
 The administrator panel lazily displays a 24-hour hashrate, power, and
 temperature graph using Home Assistant Recorder data. Bitaxe Fleet does not
 duplicate sensor history in its own storage: graphs are unavailable if Recorder
 is disabled, excludes the native sensors, or has already purged the requested
 window. Missing AxeOS fields and unavailable readings remain unavailable rather
 than becoming fabricated zero values. The fleet panel also shows current
-telemetry, online freshness, saved profile state, candidate status, scan
-progress, incidents, and on-demand redacted logs.
+telemetry, a compact fleet performance summary, online freshness, saved profile
+state, candidate status, scan progress, incidents, and on-demand redacted logs.
+It automatically presents hashrate in GH/s or TH/s and difficulty with K, M, G,
+or T suffixes while retaining raw numeric values in Home Assistant entities.
+
+### Fleet Dashboard Graph
+
+Bitaxe Fleet automatically registers its bundled dashboard card when the
+integration loads. Add **Bitaxe Fleet graph** from the dashboard card picker,
+or use it directly in a dashboard configuration without adding a Lovelace
+resource:
+
+```yaml
+type: custom:bitaxe-fleet-graph-card
+metric: hashrate
+name: Fleet hashrate
+```
+
+`metric` defaults to `hashrate`; `power` and `efficiency` are also supported.
+Each card reads only its selected aggregate from Home Assistant Recorder over a
+fixed 24-hour window, displays unavailable periods as graph gaps, and formats
+fleet hashrate dynamically as GH/s or TH/s. The card uses the same
+administrator-only WebSocket boundary as the fleet panel, so it must be viewed
+by an administrator.
 
 ## Controls And Profiles
 

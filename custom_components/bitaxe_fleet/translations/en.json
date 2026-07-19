@@ -116,6 +116,33 @@
       },
       "blocks_found": {
         "name": "Blocks found"
+      },
+      "total_hashrate": {
+        "name": "Total hashrate"
+      },
+      "total_hashrate_th": {
+        "name": "Total hashrate (TH/s)"
+      },
+      "total_power": {
+        "name": "Total power"
+      },
+      "efficiency": {
+        "name": "Efficiency"
+      },
+      "total_uptime": {
+        "name": "Total uptime"
+      },
+      "fleet_best_difficulty": {
+        "name": "Best difficulty"
+      },
+      "online_miners": {
+        "name": "Online miners"
+      },
+      "unhealthy_miners": {
+        "name": "Unhealthy miners"
+      },
+      "overheating_miners": {
+        "name": "Overheating miners"
       }
     },
     "binary_sensor": {

@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  BitaxeFleetGraphCard,
   BitaxeFleetPanel,
+  CARD_TAG,
   PANEL_TAG,
   createHistoryPath,
+  formatDifficulty,
+  formatHashrate,
   parseDiscoveryListResponse,
   parseFleetListResponse,
+  parseFleetTelemetryHistory,
   parseIncidentsListResponse,
   parseMinerTelemetryHistory,
 } from "./bitaxe-fleet-panel";
@@ -61,6 +66,7 @@ function minerDto(): Record<string, unknown> {
       target_temperature_c: 60,
     },
     telemetry: {
+      best_difficulty: 1_250_000,
       hashrate_gh_s: 700,
       power_w: 18.5,
       temperature_c: 51.2,
@@ -68,8 +74,30 @@ function minerDto(): Record<string, unknown> {
   };
 }
 
+function fleetAggregatesDto(): Record<string, unknown> {
+  return {
+    best_difficulty: 1_250_000,
+    best_difficulty_coverage: 1,
+    efficiency_j_th: 26.43,
+    enabled_miners: 1,
+    hashrate_coverage: 1,
+    online_miners: 1,
+    overheat_coverage: 1,
+    overheating_miners: 0,
+    power_coverage: 1,
+    total_hashrate_gh_s: 1_250,
+    total_hashrate_th_s: 1.25,
+    total_power_w: 18.5,
+    total_uptime_seconds: 3_600,
+    unhealthy_coverage: 1,
+    unhealthy_miners: 0,
+    uptime_coverage: 1,
+  };
+}
+
 function fleetDto(miner = minerDto()): Record<string, unknown> {
   return {
+    aggregates: fleetAggregatesDto(),
     miners: [miner],
     scan: scanDto(),
     schema_version: 1,
@@ -133,6 +161,23 @@ function historyDto(): Record<string, unknown> {
   };
 }
 
+function fleetHistoryDto(
+  metric: "efficiency" | "hashrate" | "power" = "hashrate",
+): Record<string, unknown> {
+  return {
+    available: true,
+    end_at: "2026-07-17T09:00:00+00:00",
+    metric,
+    schema_version: 1,
+    series: [
+      { at: "2026-07-17T08:00:00+00:00", value: metric === "efficiency" ? 26.1 : 650 },
+      { at: "2026-07-17T08:30:00+00:00", value: null },
+      { at: "2026-07-17T09:00:00+00:00", value: metric === "efficiency" ? 25.4 : 1_250 },
+    ],
+    start_at: "2026-07-17T08:00:00+00:00",
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolvePromise: ((value: T) => void) | null = null;
   const promise = new Promise<T>((resolve) => {
@@ -186,11 +231,13 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     const fleet = parseFleetListResponse(fleetDto());
 
     expect(fleet.schema_version).toBe(1);
+    expect(fleet.aggregates?.total_hashrate_gh_s).toBe(1_250);
     expect(fleet.miners[0]?.telemetry?.hashrate_gh_s).toBe(700);
     expect(fleet.miners[0]?.policy.overheat_policy).toBe("keep_safe_values");
     expect(parseDiscoveryListResponse(discoveryDto()).candidates).toHaveLength(1);
     expect(parseIncidentsListResponse(incidentsDto()).incidents).toHaveLength(1);
     expect(parseMinerTelemetryHistory(historyDto()).series.hashrate_gh_s).toHaveLength(3);
+    expect(parseFleetTelemetryHistory(fleetHistoryDto()).series).toHaveLength(3);
 
     const partialMiner = minerDto();
     partialMiner["firmware"] = null;
@@ -202,6 +249,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
       power_fault: false,
     };
     partialMiner["telemetry"] = {
+      best_difficulty: null,
       hashrate_gh_s: null,
       power_w: null,
       temperature_c: null,
@@ -212,6 +260,7 @@ describe("BitaxeFleetPanel DTO boundary", () => {
 
     const invalidMiner = minerDto();
     invalidMiner["telemetry"] = {
+      best_difficulty: 1_250_000,
       hashrate_gh_s: "not-a-number",
       power_w: 18.5,
       temperature_c: 51.2,
@@ -245,6 +294,12 @@ describe("BitaxeFleetPanel DTO boundary", () => {
     expect(() => parseMinerTelemetryHistory(invalidHistory)).toThrow(
       "Unexpected Bitaxe Fleet response",
     );
+
+    const invalidFleetHistory = fleetHistoryDto();
+    invalidFleetHistory["metric"] = "temperature";
+    expect(() => parseFleetTelemetryHistory(invalidFleetHistory)).toThrow(
+      "Unexpected Bitaxe Fleet response",
+    );
   });
 
   it("creates disconnected graph segments for unavailable history points", () => {
@@ -255,6 +310,22 @@ describe("BitaxeFleetPanel DTO boundary", () => {
         { at: "2026-07-17T09:00:00+00:00", value: 700 },
       ]),
     ).toMatch(/^M.* M/);
+  });
+
+  it("formats hashrate and difficulty compactly without changing raw values", () => {
+    const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+    expect(formatHashrate(null)).toBe("-- GH/s");
+    expect(formatHashrate(999.99)).toBe(`${number.format(999.99)} GH/s`);
+    expect(formatHashrate(1_000)).toBe(`${number.format(1)} TH/s`);
+    expect(formatHashrate(1_234.567)).toBe(
+      `${number.format(1.234567)} TH/s`,
+    );
+    expect(formatDifficulty(null)).toBe("--");
+    expect(formatDifficulty(999.99)).toBe(number.format(999.99));
+    expect(formatDifficulty(1_000)).toBe(`${number.format(1)}K`);
+    expect(formatDifficulty(1_250_000)).toBe(`${number.format(1.25)}M`);
+    expect(formatDifficulty(3_214_000_000)).toBe(`${number.format(3.214)}G`);
+    expect(formatDifficulty(1_234_567_890_123)).toBe(`${number.format(1.234567890123)}T`);
   });
 });
 
@@ -293,6 +364,8 @@ describe("BitaxeFleetPanel", () => {
     const root = element.shadowRoot;
     expect(customElements.get(PANEL_TAG)).toBe(BitaxeFleetPanel);
     expect(root?.textContent).toContain("Administrator console");
+    expect(root?.textContent).toContain(formatHashrate(1_250));
+    expect(root?.textContent).toContain(formatDifficulty(1_250_000));
     expect(root?.textContent).toContain("admin endpoint");
     expect(root?.textContent).toContain("Stale");
     expect(root?.querySelector("img")).toBeNull();
@@ -483,5 +556,43 @@ describe("BitaxeFleetPanel", () => {
 
     await vi.advanceTimersByTimeAsync(2_500);
     expect(calls).toHaveLength(6);
+  });
+});
+
+describe("BitaxeFleetGraphCard", () => {
+  it("auto-registers a compact fleet graph and requests only its selected metric", async () => {
+    const calls: WebSocketCommand[] = [];
+    const card = new BitaxeFleetGraphCard();
+    card.setConfig({
+      metric: "efficiency",
+      name: "Fleet efficiency",
+      type: "custom:bitaxe-fleet-graph-card",
+    });
+    card.hass = {
+      callWS(message) {
+        calls.push(message);
+        if (message.type === "bitaxe_fleet/fleet/history") {
+          return Promise.resolve(fleetHistoryDto(message.metric));
+        }
+        throw new Error(`Unexpected graph request: ${message.type}`);
+      },
+    };
+    document.body.append(card);
+
+    await vi.waitFor(() => {
+      const formatted = new Intl.NumberFormat(undefined, {
+        maximumFractionDigits: 2,
+      }).format(25.4);
+      expect(card.shadowRoot?.textContent).toContain(`${formatted} J/TH`);
+    });
+
+    expect(customElements.get(CARD_TAG)).toBe(BitaxeFleetGraphCard);
+    expect(window.customCards?.some((metadata) => metadata.type === CARD_TAG)).toBe(true);
+    expect(calls).toEqual([
+      { type: "bitaxe_fleet/fleet/history", metric: "efficiency" },
+    ]);
+    expect(card.shadowRoot?.querySelector(".history-line")?.getAttribute("d")).toMatch(
+      /^M.* M/,
+    );
   });
 });

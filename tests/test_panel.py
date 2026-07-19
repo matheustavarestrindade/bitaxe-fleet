@@ -9,7 +9,10 @@ from unittest.mock import AsyncMock, patch
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
-from custom_components.bitaxe_fleet.panel import async_register_panel
+from custom_components.bitaxe_fleet.panel import (
+    _async_register_dashboard_card,
+    async_register_panel,
+)
 
 
 class _FakeHttp:
@@ -39,6 +42,12 @@ async def test_panel_registers_one_admin_only_static_module(tmp_path: Path) -> N
     bundle.write_text("export {};\n", encoding="utf-8")
     hass = _FakeHass()
     register_panel = AsyncMock()
+    add_extra_js_url = patch(
+        "custom_components.bitaxe_fleet.panel.frontend.add_extra_js_url"
+    )
+    register_when_frontend_ready = patch(
+        "custom_components.bitaxe_fleet.panel.async_when_setup"
+    )
 
     with (
         patch("custom_components.bitaxe_fleet.panel._bundle_path", return_value=bundle),
@@ -46,9 +55,12 @@ async def test_panel_registers_one_admin_only_static_module(tmp_path: Path) -> N
             "custom_components.bitaxe_fleet.panel.panel_custom.async_register_panel",
             new=register_panel,
         ),
+        add_extra_js_url as register_extra_js,
+        register_when_frontend_ready as register_when_ready,
     ):
         await async_register_panel(cast(HomeAssistant, hass))
         await async_register_panel(cast(HomeAssistant, hass))
+        await _async_register_dashboard_card(cast(HomeAssistant, hass), "frontend")
 
     assert len(hass.http.static_paths) == 1
     static_path = hass.http.static_paths[0]
@@ -57,3 +69,9 @@ async def test_panel_registers_one_admin_only_static_module(tmp_path: Path) -> N
     await_args = register_panel.await_args
     assert await_args is not None
     assert await_args.kwargs["require_admin"] is True
+    register_when_ready.assert_called_once_with(
+        cast(HomeAssistant, hass), "frontend", _async_register_dashboard_card
+    )
+    register_extra_js.assert_called_once_with(
+        cast(HomeAssistant, hass), "/bitaxe_fleet_panel/bitaxe-fleet-panel.js"
+    )

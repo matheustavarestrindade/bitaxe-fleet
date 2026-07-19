@@ -12,7 +12,10 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.bitaxe_fleet.axeos.parser import normalize_miner_id
 from custom_components.bitaxe_fleet.const import DOMAIN, HISTORY_WINDOW
-from custom_components.bitaxe_fleet.history import async_get_miner_telemetry_history
+from custom_components.bitaxe_fleet.history import (
+    async_get_fleet_telemetry_history,
+    async_get_miner_telemetry_history,
+)
 
 
 class _Recorder:
@@ -43,6 +46,20 @@ def _register_history_sensors(hass: HomeAssistant) -> dict[str, str]:
             suggested_object_id=f"renamed_{sensor_key}",
         ).entity_id
         for sensor_key in ("hashrate", "power", "temperature")
+    }
+
+
+def _register_fleet_history_sensors(hass: HomeAssistant) -> dict[str, str]:
+    """Create renamed fleet entities to prove aggregate history is registry-safe."""
+    entity_registry = er.async_get(hass)
+    return {
+        sensor_key: entity_registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"entry-id_{sensor_key}",
+            suggested_object_id=f"renamed_fleet_{sensor_key}",
+        ).entity_id
+        for sensor_key in ("total_hashrate", "total_power", "efficiency")
     }
 
 
@@ -105,3 +122,37 @@ async def test_history_reports_unavailable_recorder_without_storing_samples(
     assert history.hashrate_gh_s == ()
     assert history.power_w == ()
     assert history.temperature_c == ()
+
+
+async def test_fleet_history_reads_only_the_selected_renamed_aggregate(
+    hass: HomeAssistant,
+) -> None:
+    """A card metric resolves its stable hub entity ID and keeps graph gaps."""
+    entity_ids = _register_fleet_history_sensors(hass)
+    observed_at = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+    recorder = _Recorder(
+        {
+            entity_ids["efficiency"]: [
+                State(entity_ids["efficiency"], "25.4", last_updated=observed_at),
+                State(
+                    entity_ids["efficiency"],
+                    "unavailable",
+                    last_updated=observed_at + timedelta(minutes=1),
+                ),
+            ]
+        }
+    )
+
+    with patch(
+        "custom_components.bitaxe_fleet.history.get_instance", return_value=recorder
+    ):
+        history = await async_get_fleet_telemetry_history(
+            hass, "entry-id", "efficiency"
+        )
+
+    assert history.metric == "efficiency"
+    assert history.recorder_available is True
+    assert [point.value for point in history.points] == [25.4, None]
+    assert len(recorder.calls) == 1
+    _, arguments = recorder.calls[0]
+    assert arguments[3] == [entity_ids["efficiency"]]

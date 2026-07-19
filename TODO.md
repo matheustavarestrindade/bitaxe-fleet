@@ -13,16 +13,19 @@ architecture, safety invariants, allowlists, and contracts. Read
 
 ## Current Status
 
-- Project state: the `0.4.0` release candidate is under final validation.
-- Published release: `v0.3.1` provides private-IPv4 enrollment, discovery,
-  controls, recovery, and basic monitoring.
-- Candidate scope: typed AxeOS capabilities/logs/mutations, approval-based mDNS
-  and bounded scanning, profiles, controls, incidents, diagnostics, expanded
-  native telemetry/health entities, Recorder-backed history graphs, the panel,
-  and opt-in automatic responsive recovery are implemented.
+- Project state: `v0.5.0` includes fleet aggregate entities, compact panel
+  formatting, and an auto-registered Recorder-backed dashboard graph card.
+- Published release: `v0.5.0` provides private-IPv4 enrollment, discovery,
+  controls, recovery, expanded monitoring, Recorder-backed history, and fleet
+  aggregates.
+- Current development scope: typed AxeOS capabilities/logs/mutations,
+  approval-based mDNS and bounded scanning, profiles, controls, incidents,
+  diagnostics, expanded native telemetry/health entities, fleet aggregates,
+  Recorder-backed history graphs, the panel, and opt-in automatic responsive
+  recovery are implemented.
 - Remaining release-readiness work: real-device validation, optional external
-  pool support, broader fleet aggregate entities, and the scenario coverage
-  explicitly retained in later phases below.
+  pool support, and the scenario coverage explicitly retained in later phases
+  below.
 - Documentation phase: updated to distinguish implemented behavior from the
   remaining roadmap.
 
@@ -456,12 +459,12 @@ the named implementation gate instead of guessing it in unrelated work.
 
 ### Fleet Aggregates
 
-- [ ] Add typed aggregate calculations for fresh enabled miners.
-- [ ] Add total hashrate and power.
-- [ ] Add efficiency only with a positive valid denominator.
-- [ ] Add online, unhealthy, and overheat counts.
-- [ ] Expose partial-data coverage.
-- [ ] Recalculate without blocking or quadratic work.
+- [x] Add typed aggregate calculations for fresh enabled miners.
+- [x] Add total hashrate and power.
+- [x] Add efficiency only with a positive valid denominator.
+- [x] Add online, unhealthy, and overheat counts.
+- [x] Expose partial-data coverage.
+- [x] Recalculate without blocking or quadratic work.
 
 ### Phase 5 Tests
 
@@ -471,7 +474,7 @@ the named implementation gate instead of guessing it in unrelated work.
 - [ ] Units, device classes, state classes, availability, and optional fields
   match fixtures.
 - [ ] Endpoint changes do not duplicate devices/entities.
-- [ ] Aggregate math handles missing, zero, stale, and mixed data correctly.
+- [x] Aggregate math handles missing, zero, stale, and mixed data correctly.
 - [ ] Setup/unload leaves no coordinator tasks.
 
 ### Phase 5 Gate

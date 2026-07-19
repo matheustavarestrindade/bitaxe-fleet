@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-19
+
+### Added
+
+- Nine hub-linked fleet aggregate sensors for total hashrate in GH/s and TH/s,
+  power, J/TH efficiency, cumulative uptime, best difficulty, and online,
+  unhealthy, and overheating miner counts.
+- Explicit aggregate coverage attributes and a fleet-panel performance summary
+  so partial telemetry remains visible rather than being represented as zero.
+- A bundled `custom:bitaxe-fleet-graph-card` that Home Assistant registers
+  automatically for 24-hour fleet hashrate, power, and efficiency graphs.
+
+### Changed
+
+- The administrator panel now formats hashrate as GH/s or TH/s and difficulty
+  with K, M, G, and T suffixes using at most two decimal places.
+
 ## [0.4.0] - 2026-07-18
 
 ### Added

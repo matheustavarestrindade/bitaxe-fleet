@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Literal
 
 from homeassistant.core import HomeAssistant
 
@@ -30,6 +31,15 @@ class RecoveryActionOutcome(StrEnum):
 
 type RestartAction = Callable[[MinerId], Awaitable[RecoveryActionOutcome]]
 type Clock = Callable[[], datetime]
+type SnapshotCondition = Literal[
+    "healthy",
+    "paused",
+    "unknown",
+    "overheat",
+    "power_fault",
+    "hardware_fault",
+    "zero_hashrate",
+]
 
 
 @dataclass(slots=True)
@@ -119,7 +129,7 @@ class RecoveryEngine:
                     self._incident_provider(),
                 )
                 self._states[miner_id] = state
-            condition = _snapshot_condition(snapshot)
+            condition = snapshot_condition(snapshot)
             if condition == "overheat":
                 await self._async_handle_overheat(miner, state)
                 return
@@ -259,7 +269,7 @@ class RecoveryEngine:
         now: datetime,
     ) -> None:
         """Wait for a positive post-restart observation before optional restoration."""
-        condition = _snapshot_condition(snapshot)
+        condition = snapshot_condition(snapshot)
         if condition == "healthy":
             state.restart_deadline = None
             state.restart_requested_at = None
@@ -316,7 +326,7 @@ class RecoveryEngine:
         self._locks.pop(miner_id, None)
 
 
-def _snapshot_condition(snapshot: MinerSnapshot) -> str:
+def snapshot_condition(snapshot: MinerSnapshot) -> SnapshotCondition:
     """Classify clear health signals; unknown telemetry never triggers a restart."""
     health = snapshot.health
     if health.overheat_mode not in {None, 0}:

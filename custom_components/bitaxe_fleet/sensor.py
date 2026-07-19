@@ -21,12 +21,15 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .aggregates import FleetAggregates
+from .const import DOMAIN
 from .coordinator import MinerCoordinator
 from .entity import BitaxeFleetMinerEntity
-from .runtime import BitaxeFleetConfigEntry
+from .runtime import BitaxeFleetConfigEntry, BitaxeFleetRuntime
 
 SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
@@ -228,6 +231,68 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
 )
 
+FLEET_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key="total_hashrate",
+        translation_key="total_hashrate",
+        icon="mdi:speedometer",
+        native_unit_of_measurement="GH/s",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="total_hashrate_th",
+        translation_key="total_hashrate_th",
+        icon="mdi:speedometer",
+        native_unit_of_measurement="TH/s",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="total_power",
+        translation_key="total_power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="efficiency",
+        translation_key="efficiency",
+        icon="mdi:lightning-bolt-circle",
+        native_unit_of_measurement="J/TH",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="total_uptime",
+        translation_key="total_uptime",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="best_difficulty",
+        translation_key="fleet_best_difficulty",
+        icon="mdi:trophy-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="online_miners",
+        translation_key="online_miners",
+        icon="mdi:access-point-check",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="unhealthy_miners",
+        translation_key="unhealthy_miners",
+        icon="mdi:alert-circle-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    SensorEntityDescription(
+        key="overheating_miners",
+        translation_key="overheating_miners",
+        icon="mdi:thermometer-alert",
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -246,6 +311,12 @@ async def async_setup_entry(
             ]
         )
 
+    async_add_entities(
+        [
+            BitaxeFleetAggregateSensor(entry.runtime_data, description)
+            for description in FLEET_SENSOR_DESCRIPTIONS
+        ]
+    )
     async_add_entities(
         [
             BitaxeSensor(coordinator, description)
@@ -348,3 +419,85 @@ class BitaxeSensor(BitaxeFleetMinerEntity, SensorEntity):
             case "blocks_found":
                 return telemetry.blocks_found
         return None
+
+
+class BitaxeFleetAggregateSensor(SensorEntity):
+    """One cached aggregate linked to the persistent fleet hub device."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    entity_description: SensorEntityDescription
+
+    def __init__(
+        self, runtime: BitaxeFleetRuntime, description: SensorEntityDescription
+    ) -> None:
+        """Initialize a stable hub-linked sensor from its aggregate description."""
+        self._runtime = runtime
+        self.entity_description = description
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, runtime.entry_id)},
+        )
+        self._attr_unique_id = f"{runtime.entry_id}_{description.key}"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the runtime's cached aggregate refreshes."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                self._runtime.fleet_updated_signal,
+                self._async_handle_fleet_update,
+            )
+        )
+
+    @callback
+    def _async_handle_fleet_update(self) -> None:
+        """Write the already-calculated state without polling a miner."""
+        self.async_write_ha_state()
+
+    @property
+    @override
+    def native_value(self) -> float | int | None:
+        """Return the selected aggregate without fabricating missing metrics."""
+        aggregates = self._runtime.fleet_aggregates
+        match self.entity_description.key:
+            case "total_hashrate":
+                return aggregates.total_hashrate_gh_s
+            case "total_hashrate_th":
+                return aggregates.total_hashrate_th_s
+            case "total_power":
+                return aggregates.total_power_w
+            case "efficiency":
+                return aggregates.efficiency_j_th
+            case "total_uptime":
+                return aggregates.total_uptime_seconds
+            case "best_difficulty":
+                return aggregates.best_difficulty
+            case "online_miners":
+                return aggregates.online_miners
+            case "unhealthy_miners":
+                return aggregates.unhealthy_miners
+            case "overheating_miners":
+                return aggregates.overheating_miners
+        return None
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, int]:
+        """Expose coverage so partial values remain distinguishable from full totals."""
+        return _coverage_attributes(self._runtime.fleet_aggregates)
+
+
+def _coverage_attributes(aggregates: FleetAggregates) -> dict[str, int]:
+    """Return common aggregate coverage without miner identity or endpoints."""
+    return {
+        "enabled_miners": aggregates.enabled_miners,
+        "online_miners": aggregates.online_miners,
+        "hashrate_coverage": aggregates.hashrate_coverage,
+        "power_coverage": aggregates.power_coverage,
+        "uptime_coverage": aggregates.uptime_coverage,
+        "best_difficulty_coverage": aggregates.best_difficulty_coverage,
+        "unhealthy_coverage": aggregates.unhealthy_coverage,
+        "overheat_coverage": aggregates.overheat_coverage,
+    }
